@@ -6,8 +6,8 @@
 // - SP 系统：支持单位自定义 SP 下限以及禁用通用崩溃，新增疲劳崩溃逻辑。
 // - AI 调整：Khathia 达到移动上限却仍无法攻击时触发全场 -10 SP 惩罚；保留 BFS+兜底消步机制。
 
-let ROWS = 11;
-let COLS = 15;
+let ROWS = 7;
+let COLS = 14;
 
 const CELL_SIZE = 56;
 const GRID_GAP = 6;
@@ -185,20 +185,24 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
   };
 }
 const units = {};
-// 玩家 - 被遗弃的动物（上）
-units['karma'] = createUnit('karma','Karma','player',25, 10, 9, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
-units['adora'] = createUnit('adora','Adora','player',25, 10, 8, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
-units['dario'] = createUnit('dario','Dario','player',25, 10, 7, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
+// 玩家 - Intro 战斗
+units['karma'] = createUnit('karma','Karma','player',20, 6, 2, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
+units['adora'] = createUnit('adora','Adora','player',20, 4, 2, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
+units['dario'] = createUnit('dario','Dario','player',20, 2, 2, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
 
-// 被遗弃的动物（上）Boss
-units['velmira'] = createUnit('velmira','Velmira/佛尔魔拉','enemy',50, 2, 8, 750, 70, 1.0, 0, ['velmiraBloodlust','velmiraBloodyShovel','velmiraSpecialPerson','velmiraAbandoned','velmiraWeakPrey'], {
+// 敌方 - 刑警队员
+const officerConfig = {
   size:1,
-  stunThreshold:4,
+  stunThreshold:2,
   spFloor:0,
   disableSpCrash:false,
-  initialSp:70,
-  pullImmune:true,
-});
+  initialSp:80,
+  pullImmune:false,
+  restoreOnZeroPct:1.0, // Restore to 100% of maxSp (80) when SP crashes
+};
+units['officer1'] = createUnit('officer1','刑警队员','enemy',20, 4, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
+units['officer2'] = createUnit('officer2','刑警队员','enemy',20, 2, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
+units['officer3'] = createUnit('officer3','刑警队员','enemy',20, 6, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
 
 // —— 范围/工具 ——
 const DIRS = { up:{dr:-1,dc:0}, down:{dr:1,dc:0}, left:{dr:0,dc:-1}, right:{dr:0,dc:1} };
@@ -1710,15 +1714,15 @@ async function playIntroCinematic(){
   setInteractionLocked(true);
   cameraReset({immediate:true});
   await sleep(260);
-  const boss = units['velmira'];
-  if(boss && boss.hp>0){
+  const officer1 = units['officer1'];
+  if(officer1 && officer1.hp>0){
     const zoom = clampValue(cameraState.baseScale * 1.3, cameraState.minScale, cameraState.maxScale);
-    cameraFocusOnCell(boss.r, boss.c, {scale: zoom, hold:0});
+    cameraFocusOnCell(officer1.r, officer1.c, {scale: zoom, hold:0});
     await sleep(420);
   }
-  await showIntroLine('Velmira是赫雷西邪教里最癫狂也是最危险的一个干部。');
-  await showIntroLine('还未成年的他给你的压迫感远远超越其他比这孩子高大无数倍的邪教成员们无数倍。');
-  await showIntroLine('你现在绝对打不过他，但是有一种感觉让你觉得你不必打败他。');
+  await showIntroLine('你们遇到了三名刑警队员。');
+  await showIntroLine('他们看起来训练有素，正义感十足。');
+  await showIntroLine('战斗一触即发！');
   hideIntroDialog();
   cameraReset();
   await sleep(520);
@@ -1811,18 +1815,7 @@ function calcOutgoingDamage(attacker, baseDmg, target, skillName){
   if(hasDeepBreathPassive(attacker)){
     dmg = Math.round(dmg * 1.10);
   }
-  // Velmira 被动：热血上头 - 75%几率增加75%伤害
-  if(attacker.passives.includes('velmiraBloodlust') && Math.random() < 0.75){
-    dmg = Math.round(dmg * 1.75);
-    appendLog(`${attacker.name} 的"热血上头"触发：伤害 x1.75`);
-  }
-  // Velmira 被动：弱肉强食 - 根据目标流血层数增加伤害（每层+10%）
-  if(attacker.passives.includes('velmiraWeakPrey') && target && target.status && target.status.bleed > 0){
-    const bleedBonus = 1 + (target.status.bleed * 0.10);
-    dmg = Math.round(dmg * bleedBonus);
-    appendLog(`${attacker.name} 的"弱肉强食"触发：因流血x${target.status.bleed}增加伤害`);
-  }
-  // Velmira 被动：暴力Buff - 首段攻击双倍伤害
+  // 暴力Buff - 首段攻击双倍伤害
   if(attacker.status && attacker.status.violenceStacks > 0 && !attacker._violenceActivated){
     dmg = Math.round(dmg * 2);
     attacker._violenceActivated = true;
@@ -1883,11 +1876,6 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
     hpDmg = Math.round(hpDmg * (1 - u._stanceDmgRed));
     spDmg = Math.round(spDmg * (1 - u._stanceDmgRed));
   }
-  // Velmira 被动：特别的人 - 对Adora的伤害减少20%
-  if(!trueDamage && u.passives.includes('velmiraSpecialPerson') && source && source.id==='adora'){
-    hpDmg = Math.round(hpDmg * 0.80);
-    spDmg = Math.round(spDmg * 0.80);
-  }
   if(!trueDamage && u.passives.includes('toughBody') && !opts.ignoreToughBody){
     hpDmg = Math.round(hpDmg * 0.75);
   }
@@ -1942,29 +1930,16 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
     }
   }
 
-  // Velmira 被动：嗜血魔铲 - 每次攻击自动给敌人上一层流血效果
+  // 戏谑Buff - 打到人给自己2层灵活+1层暴力
   if(sourceId){
     const src = units[sourceId];
-    if(src && src.passives && src.passives.includes('velmiraBloodyShovel') && src!==u && src.hp>0 && u.hp>0 && (finalHp>0 || finalSp>0)){
-      applyBleed(u, 1);
-    }
-    // Velmira 被动：被遗弃的动物 - 25%几率失去5点SP
-    if(src && src.passives && src.passives.includes('velmiraAbandoned') && src!==u && src.hp>0 && (finalHp>0 || finalSp>0)){
-      if(Math.random() < 0.25){
-        const spLoss = 5;
-        src.sp = Math.max(0, src.sp - spLoss);
-        showDamageFloat(src, 0, spLoss);
-        appendLog(`${src.name} 的"被遗弃的动物"触发：SP -${spLoss}`);
-      }
-    }
-    // Velmira 被动：戏谑Buff - 打到人给自己2层灵活+1层暴力
     if(src && src.status && src.status.mockeryStacks > 0 && u.hp>0 && (finalHp>0 || finalSp>0)){
       addStatusStacks(src,'agileStacks',2,{label:'灵活', type:'buff'});
       addStatusStacks(src,'violenceStacks',1,{label:'暴力', type:'buff'});
       updateStatusStacks(src,'mockeryStacks', Math.max(0, src.status.mockeryStacks - 1), {label:'戏谑', type:'buff'});
       appendLog(`${src.name} 的"戏谑"触发：获得2层灵活+1层暴力`);
     }
-    // Velmira 被动：暴力Buff - 消耗10sp
+    // 暴力Buff - 消耗10sp
     if(src && src.status && src.status.violenceStacks > 0 && src._violenceActivated){
       const spCost = 10;
       src.sp = Math.max(0, src.sp - spCost);
@@ -1975,29 +1950,6 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
   }
 
   handleSpCrashIfNeeded(u);
-  // Check Velmira HP threshold for battle end
-  if(u.id==='velmira' && u.hp <= 550 && u.hp > 0 && !u._thresholdTriggered){
-    u._thresholdTriggered = true;
-    setInteractionLocked(true);
-    setTimeout(async ()=>{
-      appendLog('战斗剧情触发！Velmira HP 降至 550！');
-      await showIntroLine('Velmira：原来只有这么些能耐吗～');
-      await showIntroLine('Velmira：我说实话，我很失望');
-      await showIntroLine('Velmira：现在该结束了');
-      await showIntroLine('（Velmira突然暴起，看起来开始用全力了）');
-      await showIntroLine('（但是就在这时，呜呜泱泱的警员涌入了现场让Velmira一愣）');
-      await showIntroLine('（Velmira突然暴起，看起来开始用全力了）');
-      await showIntroLine('（Velmira：啧，今天先放你们一马！');
-      await showIntroLine('Velmira：哦对了，那个戴帽子的，你很可爱哦～');
-      await showIntroLine('（Velmira消失了）');
-      hideIntroDialog();
-      await sleep(1000);
-      appendLog('========================================');
-      appendLog('战斗结束！Velmira 体力达到阈值！');
-      appendLog('========================================');
-      showAccomplish();
-    }, 800);
-  }
 
   renderAll();
 }
@@ -2254,12 +2206,12 @@ function karmaPunch(u,target){
 
 // —— Velmira 技能 ——
 // Helper function: collect enemy targets from cells
-function velmiraCollectTargets(cells){
+function officerCollectTargets(cells){
   const set=new Set();
   const arr=[];
   for(const c of cells){
     const tu=getUnitAt(c.r,c.c);
-    if(tu && tu.side!=='enemy' && !set.has(tu.id)){
+    if(tu && tu.side==='player' && !set.has(tu.id)){
       set.add(tu.id);
       arr.push(tu);
     }
@@ -2273,173 +2225,67 @@ function applyBleed(target, layers=1){
   appendLog(`${target.name} 流血层数 -> ${stacks}`);
   return stacks;
 }
-// 铲击 (1步) - 面前1格挥舞铁锹造成15点伤害并恢复5点SP
-async function velmira_ShovelStrike(u, target){
-  if(!target || target.hp<=0){ appendLog('铲击：没有目标'); unitActed(u); return; }
+// 捅 (1步) - 前方1格捅入5HP+5SP，拔出5HP+5SP
+async function officer_Stab(u, target){
+  if(!target || target.hp<=0){ appendLog('捅：没有目标'); unitActed(u); return; }
+  
+  // Stage 1: Stab in
   await telegraphThenImpact([{r:target.r,c:target.c}]);
   cameraFocusOnCell(target.r, target.c);
-  damageUnit(target.id,15,0,`${u.name} 铲击 命中 ${target.name}`, u.id,{skillFx:'velmira:铲击'});
-  const spGain = 5;
-  u.sp = Math.min(u.maxSp, u.sp + spGain);
-  showGainFloat(u,0,spGain);
-  appendLog(`${u.name} 恢复 ${spGain} SP`);
-  u.dmgDone += 15;
-  unitActed(u);
-}
-// 这很好玩啊～ (2步) - 多阶段攻击: 面前2格戳15伤害，然后3格戳30伤害，恢复5SP
-async function velmira_FunPlay(u, dir){
-  // Stage 1: Forward 2 cells, 15 damage
-  const area1 = range_forward_n(u, 2, dir);
-  if(area1.length===0){ appendLog('这很好玩啊～：前方没有目标'); unitActed(u); return; }
-  await telegraphThenImpact(area1);
-  const targets1 = velmiraCollectTargets(area1);
-  if(targets1.length){ cameraFocusOnCell(targets1[0].r, targets1[0].c); }
-  for(const target of targets1){
-    damageUnit(target.id,15,0,`${u.name} 这很好玩啊～·第一戳 命中 ${target.name}`, u.id,{skillFx:'velmira:这很好玩啊～'});
-    u.dmgDone += 15;
-  }
-  await stageMark(area1);
+  damageUnit(target.id,5,5,`${u.name} 捅·插入 命中 ${target.name}`, u.id);
+  u.dmgDone += 5;
+  await sleep(300);
   
-  // Stage 2: Forward 3 cells, 30 damage
-  const area2 = range_forward_n(u, 3, dir);
-  if(area2.length>0){
-    await telegraphThenImpact(area2);
-    const targets2 = velmiraCollectTargets(area2);
-    if(targets2.length){ cameraFocusOnCell(targets2[0].r, targets2[0].c); }
-    for(const target of targets2){
-      damageUnit(target.id,30,0,`${u.name} 这很好玩啊～·第二戳 命中 ${target.name}`, u.id,{skillFx:'velmira:这很好玩啊～'});
-      u.dmgDone += 30;
-    }
-  }
+  // Stage 2: Pull out
+  damageUnit(target.id,5,5,`${u.name} 捅·拔出 命中 ${target.name}`, u.id);
+  u.dmgDone += 5;
   
-  const spGain = 5;
-  u.sp = Math.min(u.maxSp, u.sp + spGain);
-  showGainFloat(u,0,spGain);
-  appendLog(`${u.name} 恢复 ${spGain} SP`);
   unitActed(u);
 }
-// 嬉耍 (1步) - 给自己增加一层灵活buff
-async function velmira_Play(u){
-  addStatusStacks(u,'agileStacks',1,{label:'灵活', type:'buff'});
-  appendLog(`${u.name} 获得 1 层灵活buff`);
-  unitActed(u);
-}
-// 抓到你啦！ (2步) - 多阶段：命中面前一排第一个目标造成15HP，自己移动到目标前一格，压倒造成25HP+10SP+1层恐惧
-async function velmira_CaughtYou(u, dir){
+// 枪击 (1步) - 指定方向整排10HP+5SP
+async function officer_Shoot(u, desc){
+  const dir = desc.dir || u.facing;
   const line = forwardLineAt(u, dir);
-  if(line.length===0){ appendLog('抓到你啦！：前方没有目标'); unitActed(u); return; }
+  if(line.length===0){ appendLog('枪击：前方没有目标区域'); unitActed(u); return; }
   
-  // Find first target in line
-  let target = null;
-  for(const cell of line){
-    const tu = getUnitAt(cell.r, cell.c);
-    if(tu && tu.side!=='enemy'){
-      target = tu;
-      break;
-    }
+  await telegraphThenImpact(line);
+  const targets = officerCollectTargets(line);
+  
+  if(targets.length===0){ appendLog('枪击：未命中任何目标'); unitActed(u); return; }
+  
+  if(targets.length){ cameraFocusOnCell(targets[0].r, targets[0].c); }
+  for(const target of targets){
+    damageUnit(target.id,10,5,`${u.name} 枪击 命中 ${target.name}`, u.id);
+    u.dmgDone += 10;
   }
   
-  if(!target){ appendLog('抓到你啦！：没有找到目标'); unitActed(u); return; }
+  unitActed(u);
+}
+// 连续挥刀 (2步) - 多段：前方1格 5HP，10HP，10HP+10SP
+async function officer_ComboSlash(u, target){
+  if(!target || target.hp<=0){ appendLog('连续挥刀：没有目标'); unitActed(u); return; }
   
-  // Stage 1: Hit target for 15HP
   await telegraphThenImpact([{r:target.r,c:target.c}]);
   cameraFocusOnCell(target.r, target.c);
-  damageUnit(target.id,15,0,`${u.name} 抓到你啦！·抓取 命中 ${target.name}`, u.id,{skillFx:'velmira:抓到你啦！'});
-  u.dmgDone += 15;
   
-  // Move self to one cell in front of target
-  const targetAdj = range_adjacent(target);
-  let moveCell = null;
-  // Find the cell adjacent to target in the direction from self to target
-  for(const cell of targetAdj){
-    const dirToTarget = cardinalDirFromDelta(target.r - cell.r, target.c - cell.c);
-    if(dirToTarget === dir && !getUnitAt(cell.r, cell.c)){
-      moveCell = cell;
-      break;
-    }
-  }
-  // If no ideal cell, find any empty adjacent cell
-  if(!moveCell){
-    moveCell = targetAdj.find(c=> !getUnitAt(c.r, c.c));
-  }
-  
-  if(moveCell){
-    const oldR = u.r, oldC = u.c;
-    u.r = moveCell.r;
-    u.c = moveCell.c;
-    showTrail(oldR, oldC, u.r, u.c);
-    appendLog(`${u.name} 移动到 ${target.name} 面前 (${u.r},${u.c})`);
-    pulseCell(u.r, u.c);
-  }
-  
+  // Stage 1: 5HP
+  damageUnit(target.id,5,0,`${u.name} 连续挥刀·第一刀 命中 ${target.name}`, u.id);
+  u.dmgDone += 5;
   await stageMark([{r:target.r,c:target.c}]);
   
-  // Stage 2: Pin down and stab for 25HP+10SP+fear
-  await telegraphThenImpact([{r:target.r,c:target.c}]);
-  damageUnit(target.id,25,10,`${u.name} 抓到你啦！·铲子插入 命中 ${target.name}`, u.id,{skillFx:'velmira:抓到你啦！'});
-  addStatusStacks(target,'paralyzed',1,{label:'恐惧', type:'debuff'});
-  appendLog(`${target.name} 因恐惧下回合 -1 步`);
-  u.dmgDone += 25;
-  
-  unitActed(u);
-}
-// 摆头杀 (3步) - 多阶段：5x5范围35HP+20SP，然后反方向35HP(25%破甲)+2层流血
-async function velmira_HeadSwing(u){
-  const area = range_square_n(u,2);
-  if(area.length===0){ unitActed(u); return; }
-  
-  // Stage 1: First swing 35HP+20SP
-  await telegraphThenImpact(area);
-  const targets1 = velmiraCollectTargets(area);
-  if(targets1.length){ cameraFocusOnCell(targets1[0].r, targets1[0].c); }
-  for(const target of targets1){
-    damageUnit(target.id,35,20,`${u.name} 摆头杀·正挥 命中 ${target.name}`, u.id,{skillFx:'velmira:摆头杀'});
-    u.dmgDone += 35;
-  }
-  await stageMark(area);
-  
-  // Stage 2: Reverse swing 35HP(25% armor pen)+2 bleed
-  await telegraphThenImpact(area);
-  const targets2 = velmiraCollectTargets(area);
-  if(targets2.length){ cameraFocusOnCell(targets2[0].r, targets2[0].c); }
-  for(const target of targets2){
-    // Apply 25% armor penetration (simplified as 1.25x damage)
-    const dmg = Math.round(35 * 1.25);
-    damageUnit(target.id,dmg,0,`${u.name} 摆头杀·反挥 命中 ${target.name}`, u.id,{skillFx:'velmira:摆头杀'});
-    applyBleed(target,2);
-    u.dmgDone += dmg;
+  // Stage 2: 10HP
+  if(target.hp > 0){
+    await telegraphThenImpact([{r:target.r,c:target.c}]);
+    damageUnit(target.id,10,0,`${u.name} 连续挥刀·第二刀 命中 ${target.name}`, u.id);
+    u.dmgDone += 10;
+    await stageMark([{r:target.r,c:target.c}]);
   }
   
-  unitActed(u);
-}
-// 被遗弃的动物 (4步) - 多阶段：5x5范围25HP+15SP，然后逆时针30HP+20SP（打到2+单位给自己1层戏谑）
-async function velmira_AbandonedAnimal(u){
-  const area = range_square_n(u,2);
-  if(area.length===0){ unitActed(u); return; }
-  
-  // Stage 1: First swing 25HP+15SP
-  await telegraphThenImpact(area);
-  const targets1 = velmiraCollectTargets(area);
-  if(targets1.length){ cameraFocusOnCell(targets1[0].r, targets1[0].c); }
-  for(const target of targets1){
-    damageUnit(target.id,25,15,`${u.name} 被遗弃的动物·第一挥 命中 ${target.name}`, u.id,{skillFx:'velmira:被遗弃的动物'});
-    u.dmgDone += 25;
-  }
-  await stageMark(area);
-  
-  // Stage 2: Counter-clockwise swing 30HP+20SP
-  await telegraphThenImpact(area);
-  const targets2 = velmiraCollectTargets(area);
-  if(targets2.length){ cameraFocusOnCell(targets2[0].r, targets2[0].c); }
-  for(const target of targets2){
-    damageUnit(target.id,30,20,`${u.name} 被遗弃的动物·逆挥 命中 ${target.name}`, u.id,{skillFx:'velmira:被遗弃的动物'});
-    u.dmgDone += 30;
-  }
-  
-  // If hit 2+ units in stage 2, gain 1 mockery buff
-  if(targets2.length >= 2){
-    addStatusStacks(u,'mockeryStacks',1,{label:'戏谑', type:'buff'});
-    appendLog(`${u.name} 获得 1 层戏谑buff`);
+  // Stage 3: 10HP+10SP
+  if(target.hp > 0){
+    await telegraphThenImpact([{r:target.r,c:target.c}]);
+    damageUnit(target.id,10,10,`${u.name} 连续挥刀·第三刀 命中 ${target.name}`, u.id);
+    u.dmgDone += 10;
   }
   
   unitActed(u);
@@ -2578,43 +2424,25 @@ function buildSkillFactoriesForUnit(u){
         {castMs:700}
       )}
     );
-  } else if(u.id==='velmira'){
+  } else if(u.id==='officer1' || u.id==='officer2' || u.id==='officer3'){
     F.push(
-      { key:'铲击', prob:0.70, cond:()=>true, make:()=> skill('铲击',1,'green','面前1格 15HP +5SP',
+      { key:'捅', prob:0.70, cond:()=>true, make:()=> skill('捅',1,'green','前方1格：捅入5HP+5SP，拔出5HP+5SP',
         (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
-        (uu,target)=> velmira_ShovelStrike(uu,target),
+        (uu,target)=> officer_Stab(uu,target),
         {},
+        {castMs:1000}
+      )},
+      { key:'枪击', prob:0.65, cond:()=>true, make:()=> skill('枪击',1,'green','指定方向整排 10HP+5SP',
+        (uu,aimDir)=> aimDir? range_line(uu,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_line(uu,d).forEach(x=>a.push(x)); return a;})(),
+        (uu,desc)=> officer_Shoot(uu,desc),
+        {aoe:true},
         {castMs:900}
       )},
-      { key:'这很好玩啊～', prob:0.60, cond:()=>true, make:()=> skill('这很好玩啊～',2,'green','多段：面前2格戳15HP，然后3格戳30HP +5SP',
-        (uu,aimDir)=> aimDir? range_forward_n(uu,3,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_forward_n(uu,3,d).forEach(x=>a.push(x)); return a;})(),
-        (uu,desc)=> velmira_FunPlay(uu,desc.dir||uu.facing),
-        {aoe:true},
-        {castMs:1200}
-      )},
-      { key:'嬉耍', prob:0.50, cond:()=>true, make:()=> skill('嬉耍',1,'pink','给自己增加一层灵活buff',
-        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
-        (uu)=> velmira_Play(uu),
+      { key:'连续挥刀', prob:0.50, cond:()=>true, make:()=> skill('连续挥刀',2,'green','多段：前方1格 5HP，10HP，10HP+10SP',
+        (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
+        (uu,target)=> officer_ComboSlash(uu,target),
         {},
-        {castMs:700}
-      )},
-      { key:'抓到你啦！', prob:0.40, cond:()=>true, make:()=> skill('抓到你啦！',2,'red','多段：命中面前一排第一个目标15HP，拉近，25HP+10SP+恐惧',
-        (uu,aimDir)=> aimDir? range_line(uu,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_line(uu,d).forEach(x=>a.push(x)); return a;})(),
-        (uu,desc)=> velmira_CaughtYou(uu,desc.dir||uu.facing),
-        {aoe:true},
-        {castMs:1400}
-      )},
-      { key:'摆头杀', prob:0.30, cond:()=>true, make:()=> skill('摆头杀',3,'red','5x5：35HP+20SP，反向35HP(25%破甲)+2层流血',
-        (uu)=> range_square_n(uu,2).map(c=>({...c,dir:uu.facing})),
-        (uu)=> velmira_HeadSwing(uu),
-        {aoe:true},
-        {castMs:1600}
-      )},
-      { key:'被遗弃的动物', prob:0.25, cond:()=>true, make:()=> skill('被遗弃的动物',4,'red','5x5：25HP+15SP，逆时针30HP+20SP（2+目标给自己1层戏谑）',
-        (uu)=> range_square_n(uu,2).map(c=>({...c,dir:uu.facing})),
-        (uu)=> velmira_AbandonedAnimal(uu),
-        {aoe:true},
-        {castMs:1800}
+        {castMs:1200}
       )}
     );
   }
@@ -3367,6 +3195,16 @@ function applyEndOfRoundPassives(){
       }
     }
   }
+  // 正义光环 (Justice Aura) - Criminal Police Officers heal 15HP at end of opponent's turn
+  for(const id in units){
+    const u = units[id];
+    if(u && u.hp > 0 && u.passives.includes('justiceAura')){
+      const heal = 15;
+      u.hp = Math.min(u.maxHp, u.hp + heal);
+      showGainFloat(u,heal,0);
+      appendLog(`${u.name} 正义光环触发：+${heal}HP`);
+    }
+  }
 }
 function finishEnemyTurn(){
   clearAIWatchdog();
@@ -3858,12 +3696,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   startCameraLoop();
 
   // 掩体（不可进入）
-  // 被遗弃的动物（上）地图：两个3x3掩体
-  // 左下角为(1,1)，所以需要转换坐标
-  // 左侧掩体：(2,6) (2,7) (2,8) (3,6) (3,7) (3,8) (4,6) (4,7) (4,8)
-  addCoverRectBL(1, 5, 3, 7);
-  // 右侧掩体：(12,6) (12,7) (12,8) (13,6) (13,7) (13,8) (14,6) (14,7) (14,8)
-  addCoverRectBL(11, 5, 13, 7);
+  // Intro 战斗：无掩体
   injectFXStyles();
 
   // 起手手牌
@@ -3884,9 +3717,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   window.addEventListener('load', ()=> refreshLargeOverlays());
 
-  appendLog('被遗弃的动物（上）：地图 15x11，两个3x3掩体。');
-  appendLog('Velmira 需叠满4层眩晕才会进入眩晕状态，HP降至550触发剧情。');
-  appendLog('流血会在回合开始时减少目标 5% HP，Velmira 的每次攻击都会施加流血。');
+  appendLog('Intro 战斗：地图 7x14，无掩体。');
+  appendLog('刑警队员具有"正义光环"被动：每对方回合恢复15HP。');
+  appendLog('刑警队员的SP降至0时会失去控制权1回合并减少1步，之后自动恢复至80。');
 
   const endTurnBtn=document.getElementById('endTurnBtn');
   if(endTurnBtn) endTurnBtn.addEventListener('click', ()=>{ if(interactionLocked) return; endTurn(); });
