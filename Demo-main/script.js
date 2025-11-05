@@ -3400,7 +3400,7 @@ function buildSkillCandidates(en){
       }
 
       const dirs = Object.keys(DIRS);
-      const isAdjSkill = ['血肉之刃','怨念之爪','沙包大的拳头','短匕轻挥'].includes(sk.name);
+      const isAdjSkill = ['血肉之刃','怨念之爪','沙包大的拳头','短匕轻挥','捅','连续挥刀'].includes(sk.name);
       if(isAdjSkill){
         const adj = range_adjacent(en);
         for(const c of adj){
