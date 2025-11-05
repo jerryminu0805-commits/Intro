@@ -1665,7 +1665,7 @@ function ensureIntroDialog(){
     box.className = 'box';
     const speaker = document.createElement('div');
     speaker.className = 'speaker';
-    speaker.textContent = 'Khathia';
+    speaker.textContent = '刑警队员';
     box.appendChild(speaker);
     const content = document.createElement('div');
     content.className = 'content';
@@ -2982,7 +2982,7 @@ function renderStatus(){
     el.innerHTML=`<strong>${u.name}</strong> HP:${u.hp}/${u.maxHp} SP:${u.sp}/${u.maxSp} ${summarizeNegatives(u)}`;
     partyStatus.appendChild(el);
   }
-  const enemyWrap=document.createElement('div'); enemyWrap.style.marginTop='10px'; enemyWrap.innerHTML='<strong>敌方（疲惫的极限）</strong>';
+  const enemyWrap=document.createElement('div'); enemyWrap.style.marginTop='10px'; enemyWrap.innerHTML='<strong>敌方（刑警队员）</strong>';
   const enemyUnits = Object.values(units).filter(u=>u.side==='enemy' && u.hp>0);
   for(const u of enemyUnits){
     const el=document.createElement('div'); el.className='partyRow small';
