@@ -191,33 +191,18 @@ units['adora'] = createUnit('adora','Adora','player',20, 4, 2, 100,100, 0.5,0, [
 units['dario'] = createUnit('dario','Dario','player',20, 2, 2, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
 
 // 敌方 - 刑警队员
-units['officer1'] = createUnit('officer1','刑警队员','enemy',20, 4, 12, 100, 80, 1.0, 0, ['justiceAura'], {
+const officerConfig = {
   size:1,
   stunThreshold:2,
   spFloor:0,
   disableSpCrash:false,
   initialSp:80,
   pullImmune:false,
-  restoreOnZeroPct:0.8,
-});
-units['officer2'] = createUnit('officer2','刑警队员','enemy',20, 2, 12, 100, 80, 1.0, 0, ['justiceAura'], {
-  size:1,
-  stunThreshold:2,
-  spFloor:0,
-  disableSpCrash:false,
-  initialSp:80,
-  pullImmune:false,
-  restoreOnZeroPct:0.8,
-});
-units['officer3'] = createUnit('officer3','刑警队员','enemy',20, 6, 12, 100, 80, 1.0, 0, ['justiceAura'], {
-  size:1,
-  stunThreshold:2,
-  spFloor:0,
-  disableSpCrash:false,
-  initialSp:80,
-  pullImmune:false,
-  restoreOnZeroPct:0.8,
-});
+  restoreOnZeroPct:1.0, // Restore to 100% of maxSp (80) when SP crashes
+};
+units['officer1'] = createUnit('officer1','刑警队员','enemy',20, 4, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
+units['officer2'] = createUnit('officer2','刑警队员','enemy',20, 2, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
+units['officer3'] = createUnit('officer3','刑警队员','enemy',20, 6, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
 
 // —— 范围/工具 ——
 const DIRS = { up:{dr:-1,dc:0}, down:{dr:1,dc:0}, left:{dr:0,dc:-1}, right:{dr:0,dc:1} };
@@ -2226,7 +2211,7 @@ function officerCollectTargets(cells){
   const arr=[];
   for(const c of cells){
     const tu=getUnitAt(c.r,c.c);
-    if(tu && tu.side!=='player' && !set.has(tu.id)){
+    if(tu && tu.side==='player' && !set.has(tu.id)){
       set.add(tu.id);
       arr.push(tu);
     }
