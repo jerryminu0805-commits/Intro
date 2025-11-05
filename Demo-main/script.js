@@ -1795,8 +1795,7 @@ function applySpDamage(target, amount, {sourceId=null, reason=null}={}){
   if(!target || target.hp<=0) return 0;
   
   const floor = (typeof target.spFloor === 'number') ? target.spFloor : 0;
-  const actualDamage = Math.min(target.sp - floor, amount);
-  const reduced = Math.max(0, actualDamage);
+  const reduced = Math.max(0, Math.min(target.sp - floor, amount));
   
   if(reduced > 0){
     target.sp = Math.max(floor, target.sp - reduced);
