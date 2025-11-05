@@ -1,13 +1,11 @@
-// 2D 回合制 RPG Demo - 疲惫的极限
+// 2D 回合制 RPG Demo - Intro
 // 变更摘要：
-// - 重制敌方阵容：移除七海小队，改为 Khathia 的单体 Boss 战与 10x20 新地图。
-// - Khathia：实现“老干部”“变态躯体”“疲劳的躯体”“糟糕的初始设计”等被动与六种招式。
-// - 新状态“怨念”：在回合开始蚕食目标 5% SP，并可被痛苦咆哮清算。
-// - SP 系统：支持单位自定义 SP 下限以及禁用通用崩溃，新增疲劳崩溃逻辑。
-// - AI 调整：Khathia 达到移动上限却仍无法攻击时触发全场 -10 SP 惩罚；保留 BFS+兜底消步机制。
+// - Intro 关卡：7x14 地图，对阵三名刑警队员
+// - 玩家队伍：Adora、Dario、Karma（等级20）
+// - 敌方阵容：三名刑警队员（等级20），拥有特殊技能和正义光环被动
 
-let ROWS = 10;
-let COLS = 20;
+let ROWS = 7;
+let COLS = 14;
 
 const CELL_SIZE = 56;
 const GRID_GAP = 6;
@@ -183,20 +181,14 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
 }
 const units = {};
 // 玩家
-units['adora'] = createUnit('adora','Adora','player',35, 4, 2, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
-units['dario'] = createUnit('dario','Dario','player',35, 2, 2, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
-units['karma'] = createUnit('karma','Karma','player',35, 6, 2, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
+units['adora'] = createUnit('adora','Adora','player',20, 4, 2, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
+units['dario'] = createUnit('dario','Dario','player',20, 2, 2, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
+units['karma'] = createUnit('karma','Karma','player',20, 6, 2, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
 
-// 疲惫的极限 Boss
-units['khathia'] = createUnit('khathia','Khathia','enemy',35, 4, 19, 700, 0, 0, 0, ['khathiaVeteran','khathiaTwisted','khathiaFatigue','khathiaDesign'], {
-  size:2,
-  stunThreshold:4,
-  spFloor:-100,
-  disableSpCrash:true,
-  maxMovePerTurn:3,
-  initialSp:0,
-  pullImmune:true,
-});
+// 刑警队员
+units['officer1'] = createUnit('officer1','刑警队员','enemy',20, 2, 13, 100,80, 1.0,0, ['justiceAura']);
+units['officer2'] = createUnit('officer2','刑警队员','enemy',20, 4, 13, 100,80, 1.0,0, ['justiceAura']);
+units['officer3'] = createUnit('officer3','刑警队员','enemy',20, 6, 13, 100,80, 1.0,0, ['justiceAura']);
 
 // —— 范围/工具 ——
 const DIRS = { up:{dr:-1,dc:0}, down:{dr:1,dc:0}, left:{dr:0,dc:-1}, right:{dr:0,dc:1} };
@@ -1708,14 +1700,14 @@ async function playIntroCinematic(){
   setInteractionLocked(true);
   cameraReset({immediate:true});
   await sleep(260);
-  const boss = units['khathia'];
-  if(boss && boss.hp>0){
+  const officer = units['officer2'];
+  if(officer && officer.hp>0){
     const zoom = clampValue(cameraState.baseScale * 1.3, cameraState.minScale, cameraState.maxScale);
-    cameraFocusOnCell(boss.r, boss.c, {scale: zoom, hold:0});
+    cameraFocusOnCell(officer.r, officer.c, {scale: zoom, hold:0});
     await sleep(420);
   }
-  await showIntroLine('Khathia：......');
-  await showIntroLine('Khathia：你不应该在这里......');
+  await showIntroLine('刑警队员：站住！');
+  await showIntroLine('刑警队员：不许动！');
   hideIntroDialog();
   cameraReset();
   await sleep(520);
@@ -2412,6 +2404,74 @@ async function khathia_FinalStruggle(u){
   unitActed(u);
 }
 
+// —— 刑警队员技能 ——
+function officerStab(u, target){
+  if(!target || target.hp<=0){ appendLog('捅：未命中'); unitActed(u); return; }
+  setUnitFacing(u, cardinalDirFromDelta(target.r - u.r, target.c - u.c));
+  cameraFocusOnCell(target.r, target.c);
+  // First stab
+  damageUnit(target.id, 5, 5, `${u.name} 捅·刺入 命中 ${target.name}`, u.id, {skillFx:'officer:捅'});
+  u.dmgDone = (u.dmgDone || 0) + 5;
+  // Pull out
+  setTimeout(()=>{
+    damageUnit(target.id, 5, 5, `${u.name} 捅·拔出 命中 ${target.name}`, u.id, {skillFx:'officer:捅'});
+    u.dmgDone = (u.dmgDone || 0) + 5;
+  }, 400);
+  unitActed(u);
+}
+
+function officerGunShot(u, desc){
+  const dir = desc && desc.dir ? desc.dir : u.facing;
+  setUnitFacing(u, dir);
+  const line = range_line(u, dir);
+  if(line.length === 0){ appendLog('枪击：前方无目标'); unitActed(u); return; }
+  
+  const targets = [];
+  const set = new Set();
+  for(const c of line){
+    const tu = getUnitAt(c.r, c.c);
+    if(tu && tu.side !== u.side && !set.has(tu.id)){
+      set.add(tu.id);
+      targets.push(tu);
+    }
+  }
+  
+  if(targets.length === 0){ appendLog('枪击：前方无敌人'); unitActed(u); return; }
+  
+  for(const target of targets){
+    cameraFocusOnCell(target.r, target.c);
+    damageUnit(target.id, 10, 5, `${u.name} 枪击 命中 ${target.name}`, u.id, {skillFx:'officer:枪击'});
+    u.dmgDone = (u.dmgDone || 0) + 10;
+  }
+  unitActed(u);
+}
+
+async function officerSlashCombo(u, target){
+  if(!target || target.hp<=0){ appendLog('连续挥刀：未命中'); unitActed(u); return; }
+  setUnitFacing(u, cardinalDirFromDelta(target.r - u.r, target.c - u.c));
+  cameraFocusOnCell(target.r, target.c);
+  
+  // Stage 1: 5HP
+  damageUnit(target.id, 5, 0, `${u.name} 连续挥刀·第一段 命中 ${target.name}`, u.id, {skillFx:'officer:连续挥刀'});
+  u.dmgDone = (u.dmgDone || 0) + 5;
+  await sleep(350);
+  
+  // Stage 2: 10HP
+  if(target.hp > 0){
+    damageUnit(target.id, 10, 0, `${u.name} 连续挥刀·第二段 命中 ${target.name}`, u.id, {skillFx:'officer:连续挥刀'});
+    u.dmgDone = (u.dmgDone || 0) + 10;
+    await sleep(350);
+  }
+  
+  // Stage 3: 10HP+10SP
+  if(target.hp > 0){
+    damageUnit(target.id, 10, 10, `${u.name} 连续挥刀·第三段 命中 ${target.name}`, u.id, {skillFx:'officer:连续挥刀'});
+    u.dmgDone = (u.dmgDone || 0) + 10;
+  }
+  
+  unitActed(u);
+}
+
 // —— Khathia 防御姿态兼容（保留旧函数以支持玩家技能） ——
 // —— 技能池/抽牌（含调整：Katz/Nelya/Kyn 技能）；移动卡统一蓝色 —— 
 function skill(name,cost,color,desc,rangeFn,execFn,estimate={},meta={}){ return {name,cost,color,desc,rangeFn,execFn,estimate,meta}; }
@@ -2545,53 +2605,25 @@ function buildSkillFactoriesForUnit(u){
         {castMs:700}
       )}
     );
-  } else if(u.id==='khathia'){
+  } else if(u.id.startsWith('officer')){
     F.push(
-      { key:'血肉之刃', prob:0.70, cond:()=>true, make:()=> skill('血肉之刃',1,'green','前方2x2：15HP+10HP，多段叠怨念',
-        (uu,aimDir)=> { const dir=aimDir||uu.facing; return forwardRect2x2(uu,dir,2,2).map(c=>({...c,dir})); },
-        async (uu,desc)=> { const dir = desc && desc.dir ? desc.dir : uu.facing; await khathia_FleshBlade(uu, dir); },
+      { key:'捅', prob:0.70, cond:()=>true, make:()=> skill('捅',1,'green','前方1格 5HP+5SP（拔出5HP+5SP）',
+        (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
+        (uu,target)=> officerStab(uu,target),
         {},
-        {castMs:1100}
+        {castMs:900}
       )},
-      { key:'怨念之爪', prob:0.70, cond:()=>true, make:()=> skill('怨念之爪',1,'green','前方2x2：10HP+15SP并叠怨念',
-        (uu,aimDir)=> { const dir=aimDir||uu.facing; return forwardRect2x2(uu,dir,2,2).map(c=>({...c,dir})); },
-        async (uu,desc)=> { const dir = desc && desc.dir ? desc.dir : uu.facing; await khathia_GrudgeClaw(uu, dir); },
+      { key:'枪击', prob:0.65, cond:()=>true, make:()=> skill('枪击',1,'green','指定方向整排 10HP+5SP',
+        (uu,aimDir)=> aimDir? range_line(uu,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_line(uu,d).forEach(x=>a.push(x)); return a;})(),
+        (uu,desc)=> officerGunShot(uu,desc),
+        {aoe:true},
+        {castMs:900}
+      )},
+      { key:'连续挥刀', prob:0.50, cond:()=>true, make:()=> skill('连续挥刀',2,'red','前方1格多段：5HP → 10HP → 10HP+10SP',
+        (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
+        (uu,target)=> officerSlashCombo(uu,target),
         {},
-        {castMs:1100}
-      )},
-      { key:'蛮横横扫', prob:0.60, cond:()=>true, make:()=> skill('蛮横横扫',2,'red','前方4x2：20HP并附恐惧',
-        (uu,aimDir)=> { const dir=aimDir||uu.facing; return forwardRect2x2(uu,dir,4,2).map(c=>({...c,dir})); },
-        async (uu,desc)=> { const dir = desc && desc.dir ? desc.dir : uu.facing; await khathia_BrutalSweep(uu, dir); },
-        {aoe:true},
-        {castMs:1400}
-      )},
-      { key:'能者多劳', prob:0.45, cond:()=>true, make:()=> skill('能者多劳',2,'red','多段：前2x2→同区→至边缘，叠怨念并削SP',
-        (uu,aimDir)=> { 
-          const dir=aimDir||uu.facing; 
-          // Show the maximum range (stage 3) for targeting
-          // For 2x2 unit, calculate depth to map edge in attack direction
-          let maxDepth = 2;
-          if(dir === 'down'){ maxDepth = ROWS - (uu.r + 1); }
-          else if(dir === 'up'){ maxDepth = uu.r - 1; }
-          else if(dir === 'left'){ maxDepth = uu.c - 1; }
-          else if(dir === 'right'){ maxDepth = COLS - (uu.c + 1); }
-          return forwardRect2x2(uu,dir,2,maxDepth).map(c=>({...c,dir})); 
-        },
-        async (uu,desc)=> { const dir = desc && desc.dir ? desc.dir : uu.facing; await khathia_Overwork(uu, dir); },
-        {aoe:true},
-        {castMs:1900}
-      )},
-      { key:'痛苦咆哮', prob:0.35, cond:()=>true, make:()=> skill('痛苦咆哮',2,'red','恢复自身SP并清算所有怨念目标',
-        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
-        async (uu)=> await khathia_AgonyRoar(uu),
-        {},
-        {castMs:1500}
-      )},
-      { key:'过多疲劳患者最终的挣扎', prob:0.15, cond:()=>true, make:()=> skill('过多疲劳患者最终的挣扎',3,'red','以自身为中心大范围：50HP+70SP',
-        (uu)=> range_square_n(uu,5).map(c=>({...c,dir:uu.facing})),
-        async (uu)=> await khathia_FinalStruggle(uu),
-        {aoe:true},
-        {castMs:2200}
+        {castMs:1200}
       )}
     );
   }
@@ -3307,6 +3339,20 @@ function processUnitsTurnEnd(side){
   for(const id in units){
     const u=units[id];
     if(u.side!==side) continue;
+    
+    // 正义光环：每对方回合结束，恢复15HP
+    if(u.passives && u.passives.includes('justiceAura') && u.hp > 0){
+      // Heal when it's the other side's turn ending (so when player turn ends, officers heal)
+      if(side === 'player'){
+        const before = u.hp;
+        u.hp = Math.min(u.maxHp, u.hp + 15);
+        if(u.hp > before){
+          showGainFloat(u, u.hp - before, 0);
+          appendLog(`${u.name} 正义光环：+15HP`);
+        }
+      }
+    }
+    
     if(u.id==='adora' && u.passives.includes('calmAnalysis')){
       if((u.actionsThisTurn||0)===0){
         u.sp = Math.min(u.maxSp, u.sp + 10);
@@ -3861,9 +3907,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   window.addEventListener('load', ()=> refreshLargeOverlays());
 
-  appendLog('疲惫的极限：地图 10x20，全场无额外掩体。');
-  appendLog('Khathia 需叠满4层眩晕才会进入眩晕状态，SP 崩溃将触发特殊疲劳崩溃。');
-  appendLog('怨念会在回合开始时吞噬目标的 5% SP，记得及时清除。');
+  appendLog('Intro：地图 7x14，对阵三名刑警队员。');
+  appendLog('刑警队员拥有正义光环：每对方回合结束时恢复15HP。');
+  appendLog('刑警队员SP降至0时将眩晕1回合并减少1步。');
 
   const endTurnBtn=document.getElementById('endTurnBtn');
   if(endTurnBtn) endTurnBtn.addEventListener('click', ()=>{ if(interactionLocked) return; endTurn(); });
