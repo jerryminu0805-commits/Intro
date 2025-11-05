@@ -186,7 +186,7 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
 }
 const units = {};
 // 玩家 - Intro 战斗
-units['karma'] = createUnit('karma','Karma','player',20, 6, 4, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
+units['karma'] = createUnit('karma','Karma','player',20, 6, 2, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
 units['adora'] = createUnit('adora','Adora','player',20, 4, 2, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
 units['dario'] = createUnit('dario','Dario','player',20, 2, 2, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
 
