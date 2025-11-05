@@ -193,7 +193,7 @@ units['dario'] = createUnit('dario','Dario','player',20, 2, 2, 150,100, 0.75,0, 
 // 敌方 - 刑警队员
 const officerConfig = {
   size:1,
-  stunThreshold:2,
+  stunThreshold:1, // Only need 1 stagger stack to be stunned
   spFloor:0,
   disableSpCrash:false,
   initialSp:80,
@@ -2225,7 +2225,7 @@ function applyBleed(target, layers=1){
   appendLog(`${target.name} 流血层数 -> ${stacks}`);
   return stacks;
 }
-// 捅 (1步) - 前方1格捅入5HP+5SP，拔出5HP+5SP
+// 捅 (1步) - 前方1格捅入5HP+5SP，拔出5HP+5SP，造成1层流血
 async function officer_Stab(u, target){
   if(!target || target.hp<=0){ appendLog('捅：没有目标'); unitActed(u); return; }
   
@@ -2237,55 +2237,79 @@ async function officer_Stab(u, target){
   await sleep(300);
   
   // Stage 2: Pull out
-  damageUnit(target.id,5,5,`${u.name} 捅·拔出 命中 ${target.name}`, u.id);
-  u.dmgDone += 5;
+  if(target.hp > 0){
+    damageUnit(target.id,5,5,`${u.name} 捅·拔出 命中 ${target.name}`, u.id);
+    u.dmgDone += 5;
+    // Apply bleed effect
+    applyBleed(target, 1);
+  }
   
   unitActed(u);
 }
-// 枪击 (1步) - 指定方向整排10HP+5SP
+// 枪击 (1步) - 指定方向第一个单位10HP+5SP（非AOE）
 async function officer_Shoot(u, desc){
   const dir = desc.dir || u.facing;
   const line = forwardLineAt(u, dir);
   if(line.length===0){ appendLog('枪击：前方没有目标区域'); unitActed(u); return; }
   
-  await telegraphThenImpact(line);
-  const targets = officerCollectTargets(line);
-  
-  if(targets.length===0){ appendLog('枪击：未命中任何目标'); unitActed(u); return; }
-  
-  if(targets.length){ cameraFocusOnCell(targets[0].r, targets[0].c); }
-  for(const target of targets){
-    damageUnit(target.id,10,5,`${u.name} 枪击 命中 ${target.name}`, u.id);
-    u.dmgDone += 10;
+  // Find the first unit in the line (non-AOE)
+  let firstTarget = null;
+  for(const cell of line){
+    const tu = getUnitAt(cell.r, cell.c);
+    if(tu && tu.side === 'player'){
+      firstTarget = tu;
+      break;
+    }
   }
+  
+  if(!firstTarget){ 
+    appendLog('枪击：未命中任何目标'); 
+    unitActed(u); 
+    return; 
+  }
+  
+  await telegraphThenImpact([{r:firstTarget.r, c:firstTarget.c}]);
+  cameraFocusOnCell(firstTarget.r, firstTarget.c);
+  
+  damageUnit(firstTarget.id,10,5,`${u.name} 枪击 命中 ${firstTarget.name}`, u.id);
+  u.dmgDone += 10;
   
   unitActed(u);
 }
-// 连续挥刀 (2步) - 多段：前方1格 5HP，10HP，10HP+10SP
+// 连续挥刀 (2步) - 多段：前方1格 5HP+眩晕叠层，10HP+眩晕叠层，10HP+10SP+眩晕叠层
 async function officer_ComboSlash(u, target){
   if(!target || target.hp<=0){ appendLog('连续挥刀：没有目标'); unitActed(u); return; }
   
   await telegraphThenImpact([{r:target.r,c:target.c}]);
   cameraFocusOnCell(target.r, target.c);
   
-  // Stage 1: 5HP
+  // Stage 1: 5HP + stagger
   damageUnit(target.id,5,0,`${u.name} 连续挥刀·第一刀 命中 ${target.name}`, u.id);
   u.dmgDone += 5;
+  if(target.hp > 0){
+    applyStunOrStack(target, 1, {reason:'连续挥刀·第一刀'});
+  }
   await stageMark([{r:target.r,c:target.c}]);
   
-  // Stage 2: 10HP
+  // Stage 2: 10HP + stagger
   if(target.hp > 0){
     await telegraphThenImpact([{r:target.r,c:target.c}]);
     damageUnit(target.id,10,0,`${u.name} 连续挥刀·第二刀 命中 ${target.name}`, u.id);
     u.dmgDone += 10;
+    if(target.hp > 0){
+      applyStunOrStack(target, 1, {reason:'连续挥刀·第二刀'});
+    }
     await stageMark([{r:target.r,c:target.c}]);
   }
   
-  // Stage 3: 10HP+10SP
+  // Stage 3: 10HP+10SP + stagger
   if(target.hp > 0){
     await telegraphThenImpact([{r:target.r,c:target.c}]);
     damageUnit(target.id,10,10,`${u.name} 连续挥刀·第三刀 命中 ${target.name}`, u.id);
     u.dmgDone += 10;
+    if(target.hp > 0){
+      applyStunOrStack(target, 1, {reason:'连续挥刀·第三刀'});
+    }
   }
   
   unitActed(u);
@@ -2426,19 +2450,19 @@ function buildSkillFactoriesForUnit(u){
     );
   } else if(u.id==='officer1' || u.id==='officer2' || u.id==='officer3'){
     F.push(
-      { key:'捅', prob:0.70, cond:()=>true, make:()=> skill('捅',1,'green','前方1格：捅入5HP+5SP，拔出5HP+5SP',
+      { key:'捅', prob:0.70, cond:()=>true, make:()=> skill('捅',1,'green','前方1格：捅入5HP+5SP，拔出5HP+5SP，造成1层流血',
         (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
         (uu,target)=> officer_Stab(uu,target),
         {},
         {castMs:1000}
       )},
-      { key:'枪击', prob:0.65, cond:()=>true, make:()=> skill('枪击',1,'green','指定方向整排 10HP+5SP',
+      { key:'枪击', prob:0.65, cond:()=>true, make:()=> skill('枪击',1,'green','指定方向第一个单位 10HP+5SP',
         (uu,aimDir)=> aimDir? range_line(uu,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_line(uu,d).forEach(x=>a.push(x)); return a;})(),
         (uu,desc)=> officer_Shoot(uu,desc),
-        {aoe:true},
+        {},
         {castMs:900}
       )},
-      { key:'连续挥刀', prob:0.50, cond:()=>true, make:()=> skill('连续挥刀',2,'green','多段：前方1格 5HP，10HP，10HP+10SP',
+      { key:'连续挥刀', prob:0.50, cond:()=>true, make:()=> skill('连续挥刀',2,'green','多段：前方1格 5HP+眩晕叠层，10HP+眩晕叠层，10HP+10SP+眩晕叠层',
         (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
         (uu,target)=> officer_ComboSlash(uu,target),
         {},
