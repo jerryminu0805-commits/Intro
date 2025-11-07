@@ -1679,7 +1679,7 @@ function ensureIntroDialog(){
     box.className = 'box';
     const speaker = document.createElement('div');
     speaker.className = 'speaker';
-    speaker.textContent = 'Velmira';
+    speaker.textContent = '';
     box.appendChild(speaker);
     const content = document.createElement('div');
     content.className = 'content';
@@ -1720,9 +1720,7 @@ async function playIntroCinematic(){
     cameraFocusOnCell(officer1.r, officer1.c, {scale: zoom, hold:0});
     await sleep(420);
   }
-  await showIntroLine('你们遇到了三名刑警队员。');
-  await showIntroLine('他们看起来训练有素，正义感十足。');
-  await showIntroLine('战斗一触即发！');
+  await showIntroLine('记住，这只是测试，不需要太认真');
   hideIntroDialog();
   cameraReset();
   await sleep(520);
