@@ -2297,40 +2297,31 @@ async function officer_Shoot(u, desc){
   
   unitActed(u);
 }
-// 连续挥刀 (2步) - 多段：前方1格 5HP+眩晕叠层，10HP+眩晕叠层，10HP+10SP+眩晕叠层
+// 连续挥刀 (2步) - 多段：前方1格 5HP，10HP，10HP+10SP
 async function officer_ComboSlash(u, target){
   if(!target || target.hp<=0){ appendLog('连续挥刀：没有目标'); unitActed(u); return; }
   
   await telegraphThenImpact([{r:target.r,c:target.c}]);
   cameraFocusOnCell(target.r, target.c);
   
-  // Stage 1: 5HP + stagger
+  // Stage 1: 5HP
   damageUnit(target.id,5,0,`${u.name} 连续挥刀·第一刀 命中 ${target.name}`, u.id);
   u.dmgDone += 5;
-  if(target.hp > 0){
-    applyStunOrStack(target, 1, {reason:'连续挥刀·第一刀'});
-  }
   await stageMark([{r:target.r,c:target.c}]);
   
-  // Stage 2: 10HP + stagger
+  // Stage 2: 10HP
   if(target.hp > 0){
     await telegraphThenImpact([{r:target.r,c:target.c}]);
     damageUnit(target.id,10,0,`${u.name} 连续挥刀·第二刀 命中 ${target.name}`, u.id);
     u.dmgDone += 10;
-    if(target.hp > 0){
-      applyStunOrStack(target, 1, {reason:'连续挥刀·第二刀'});
-    }
     await stageMark([{r:target.r,c:target.c}]);
   }
   
-  // Stage 3: 10HP+10SP + stagger
+  // Stage 3: 10HP+10SP
   if(target.hp > 0){
     await telegraphThenImpact([{r:target.r,c:target.c}]);
     damageUnit(target.id,10,10,`${u.name} 连续挥刀·第三刀 命中 ${target.name}`, u.id);
     u.dmgDone += 10;
-    if(target.hp > 0){
-      applyStunOrStack(target, 1, {reason:'连续挥刀·第三刀'});
-    }
   }
   
   unitActed(u);
@@ -2483,7 +2474,7 @@ function buildSkillFactoriesForUnit(u){
         {},
         {castMs:900}
       )},
-      { key:'连续挥刀', prob:0.50, cond:()=>true, make:()=> skill('连续挥刀',2,'green','多段：前方1格 5HP+眩晕叠层，10HP+眩晕叠层，10HP+10SP+眩晕叠层',
+      { key:'连续挥刀', prob:0.50, cond:()=>true, make:()=> skill('连续挥刀',2,'green','多段：前方1格 5HP，10HP，10HP+10SP',
         (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
         (uu,target)=> officer_ComboSlash(uu,target),
         {},
