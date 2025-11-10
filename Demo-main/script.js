@@ -1957,6 +1957,12 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
     hpDmg = Math.round(hpDmg * (1 - u._stanceDmgRed));
     spDmg = Math.round(spDmg * (1 - u._stanceDmgRed));
   }
+  // Gift被动 - 50%几率减少50%伤害
+  if(!trueDamage && u.passives.includes('gift') && Math.random() < 0.50){
+    hpDmg = Math.round(hpDmg * 0.5);
+    spDmg = Math.round(spDmg * 0.5);
+    appendLog(`${u.name} 的"Gift"触发：伤害减半`);
+  }
   if(!trueDamage && u.passives.includes('toughBody') && !opts.ignoreToughBody){
     hpDmg = Math.round(hpDmg * 0.75);
   }
@@ -1965,6 +1971,13 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
     hpDmg = Math.round(hpDmg * 2);
     spDmg = Math.round(spDmg * 2);
     appendLog(`${u.name} 因 SP 崩溃眩晕承受双倍伤害！`);
+  }
+
+  // 脆弱Debuff - 增加伤害
+  if(u.status.vulnerability && u.status.vulnerability > 0 && (hpDmg>0 || spDmg>0)){
+    const vulnMultiplier = 1 + u.status.vulnerability;
+    hpDmg = Math.round(hpDmg * vulnMultiplier);
+    spDmg = Math.round(spDmg * vulnMultiplier);
   }
 
   const prevHp = u.hp;
@@ -4185,6 +4198,14 @@ function processUnitsTurnStart(side){
       appendLog(`${u.name} 的“恢复”触发：+5HP（剩余 ${u.status.recoverStacks}）`);
     }
 
+    // 忠臣的信仰 - 每回合增加10SP
+    if(u.passives.includes('loyalFaith')){
+      const before = u.sp;
+      u.sp = Math.min(u.maxSp, u.sp + 10);
+      syncSpBroken(u);
+      showGainFloat(u,0,10);
+    }
+
     if(u.status.bleed && u.status.bleed>0){
       const bleedDmg = Math.max(1, Math.floor(u.maxHp*0.05));
       damageUnit(u.id, bleedDmg, 0, `${u.name} 因流血受损`, null);
@@ -4222,6 +4243,11 @@ function processUnitsTurnEnd(side){
       const next = Math.max(0, u.status.stunned-1);
       updateStatusStacks(u,'stunned', next, {label:'眩晕', type:'debuff'});
       appendLog(`${u.name} 的眩晕减少 1（剩余 ${u.status.stunned}）`);
+    }
+    // Clear vulnerability at end of turn
+    if(u.status.vulnerability && u.status.vulnerability > 0){
+      u.status.vulnerability = 0;
+      updateStatusStacks(u,'vulnerability', 0, {label:'脆弱', type:'debuff'});
     }
   }
 }
