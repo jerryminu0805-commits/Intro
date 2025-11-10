@@ -4825,7 +4825,7 @@ async function enemyTurn(){
   }
 
   enemyActionCameraLock = false;
-  cameraReset();
+  cameraReset({immediate: true});
 
   // 正式结束敌方回合
   finishEnemyTurn();
