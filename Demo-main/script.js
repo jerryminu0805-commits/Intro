@@ -6,8 +6,8 @@
 // - SP 系统：支持单位自定义 SP 下限以及禁用通用崩溃，新增疲劳崩溃逻辑。
 // - AI 调整：Khathia 达到移动上限却仍无法攻击时触发全场 -10 SP 惩罚；保留 BFS+兜底消步机制。
 
-let ROWS = 7;
-let COLS = 14;
+let ROWS = 26;
+let COLS = 18;
 
 const CELL_SIZE = 56;
 const GRID_GAP = 6;
@@ -110,6 +110,11 @@ function clearAIWatchdog(){ if(aiWatchdogTimer){ clearTimeout(aiWatchdogTimer); 
 // —— 地图/掩体 ——
 function toRC_FromBottomLeft(x, y){ const c = x + 1; const r = ROWS - y; return { r, c }; }
 function isVoidCell(r,c){
+  // Empty areas (void zones) - using 1-indexed coordinates
+  // (6,21) to (18,21) to (18,18) to (6,18) - rectangle
+  if(r >= 18 && r <= 21 && c >= 6 && c <= 18) return true;
+  // (1,8) to (1,12) to (13,12) to (13,8) - rectangle  
+  if(r >= 8 && r <= 12 && c >= 1 && c <= 13) return true;
   return false;
 }
 const coverCells = new Set();
@@ -119,6 +124,17 @@ function addCoverRectBL(x1,y1,x2,y2){
   for(let x=xmin; x<=xmax; x++){
     for(let y=ymin; y<=ymax; y++){
       const {r,c} = toRC_FromBottomLeft(x,y);
+      if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c)){
+        coverCells.add(`${r},${c}`);
+      }
+    }
+  }
+}
+function addCoverRect(r1,c1,r2,c2){
+  const rmin = Math.min(r1,r2), rmax = Math.max(r1,r2);
+  const cmin = Math.min(c1,c2), cmax = Math.max(c1,c2);
+  for(let r=rmin; r<=rmax; r++){
+    for(let c=cmin; c<=cmax; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c)){
         coverCells.add(`${r},${c}`);
       }
@@ -148,6 +164,8 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
       agileStacks: 0,            // "灵活"Buff 层数（让敌方30%几率miss，miss消耗一层）
       mockeryStacks: 0,          // "戏谑"Buff 层数（打到人给自己2层灵活+1层暴力）
       violenceStacks: 0,         // "暴力"Buff 层数（下次攻击双倍伤害但消耗10sp）
+      cultTarget: 0,             // "邪教目标"层数（赫雷西成员的标记）
+      vulnerability: 0,          // "脆弱"Debuff（伤害增加百分比）
     },
     dmgDone: 0,
     skillPool: [],
@@ -185,24 +203,66 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
   };
 }
 const units = {};
-// 玩家 - Intro 战斗
-units['karma'] = createUnit('karma','Karma','player',20, 6, 2, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
-units['adora'] = createUnit('adora','Adora','player',20, 4, 2, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
-units['dario'] = createUnit('dario','Dario','player',20, 2, 2, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
+// 玩家 - 血楼计划
+// Note: Using 1-indexed coordinates from problem statement, converting to 0-indexed for internal use
+// Problem statement uses (X,Y) where X is horizontal (col), Y is vertical (row) from top-left (1,1)
+// Internal: r=row from top (1-indexed), c=col from left (1-indexed)
+units['dario'] = createUnit('dario','Dario','player',25, 23, 16, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
+units['adora'] = createUnit('adora','Adora','player',25, 24, 16, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
+units['karma'] = createUnit('karma','Karma','player',25, 25, 16, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
 
-// 敌方 - 刑警队员
-const officerConfig = {
+// 敌方 - 赫雷西成员（初始阶段）
+const heresyBasicConfig = {
   size:1,
-  stunThreshold:1, // Only need 1 stagger stack to be stunned
+  stunThreshold:1,
   spFloor:0,
   disableSpCrash:false,
-  initialSp:80,
+  initialSp:70,
   pullImmune:false,
-  restoreOnZeroPct:1.0, // Restore to 100% of maxSp (80) when SP crashes
+  restoreOnZeroPct:1.0,
 };
-units['officer1'] = createUnit('officer1','刑警队员','enemy',20, 4, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
-units['officer2'] = createUnit('officer2','刑警队员','enemy',20, 2, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
-units['officer3'] = createUnit('officer3','刑警队员','enemy',20, 6, 12, 100, 80, 1.0, 0, ['justiceAura'], officerConfig);
+const heresyMageConfig = {
+  size:1,
+  stunThreshold:1,
+  spFloor:0,
+  disableSpCrash:false,
+  initialSp:90,
+  pullImmune:false,
+  restoreOnZeroPct:1.0,
+};
+const heresyAssassinConfig = {
+  size:1,
+  stunThreshold:1,
+  spFloor:0,
+  disableSpCrash:false,
+  initialSp:100,
+  pullImmune:false,
+  restoreOnZeroPct:1.0,
+};
+const heresyEliteConfig = {
+  size:1,
+  stunThreshold:2, // Needs 2 stagger stacks
+  spFloor:0,
+  disableSpCrash:false,
+  initialSp:50,
+  pullImmune:false,
+  restoreOnZeroPct:1.0,
+};
+const heresyBossConfig = {
+  size:1,
+  stunThreshold:3, // Needs 3 stagger stacks
+  spFloor:0,
+  disableSpCrash:false,
+  initialSp:90,
+  pullImmune:true,
+  restoreOnZeroPct:1.0,
+};
+
+// 第一波敌人（可摧毁墙体1之前）
+units['heresy_basic_1'] = createUnit('heresy_basic_1','雏形赫雷西成员','enemy',25, 23, 3, 150, 70, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
+units['heresy_basic_2'] = createUnit('heresy_basic_2','雏形赫雷西成员','enemy',25, 25, 3, 150, 70, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
+units['heresy_mage_1'] = createUnit('heresy_mage_1','法形赫雷西成员','enemy',25, 24, 5, 100, 90, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyMageConfig);
+units['heresy_assassin_1'] = createUnit('heresy_assassin_1','刺形赫雷西成员','enemy',25, 24, 18, 50, 100, 1.0, 0, ['loyalFaith','hiddenGift','triangleForm','godsCommand'], heresyAssassinConfig);
 
 // —— 范围/工具 ——
 const DIRS = { up:{dr:-1,dc:0}, down:{dr:1,dc:0}, left:{dr:0,dc:-1}, right:{dr:0,dc:1} };
@@ -2327,6 +2387,798 @@ async function officer_ComboSlash(u, target){
   unitActed(u);
 }
 
+// —— 赫雷西成员技能实现 ——
+// Helper: Check if unit has "邪教目标" status
+function hasCultTarget(u){ return u && u.status && u.status.cultTarget > 0; }
+function addCultTarget(u, stacks=1){ if(!u || !u.status) return; u.status.cultTarget = (u.status.cultTarget||0) + stacks; updateStatusStacks(u,'cultTarget',u.status.cultTarget,{label:'邪教目标',type:'debuff'}); }
+function getCultTargetStacks(u){ return (u && u.status && u.status.cultTarget) || 0; }
+function clearCultTarget(u){ if(!u || !u.status) return; u.status.cultTarget=0; updateStatusStacks(u,'cultTarget',0,{label:'邪教目标',type:'debuff'}); }
+
+// Helper: Apply enhanced body passive (20% damage increase for attacks, 20% damage reduction for defense)
+function applyEnhancedDamage(baseDmg, attacker){
+  if(attacker && attacker.passives && attacker.passives.includes('enhancedBody')){
+    return Math.floor(baseDmg * 1.2);
+  }
+  return baseDmg;
+}
+function applyEnhancedDefense(baseDmg, defender){
+  if(defender && defender.passives && defender.passives.includes('enhancedBody')){
+    return Math.floor(baseDmg * 0.8);
+  }
+  return baseDmg;
+}
+
+// 雏形赫雷西成员 - 干扰者死
+async function heresyBasic_Interfere(u, target){
+  if(!target || target.hp<=0){ appendLog('干扰者死：没有目标'); unitActed(u); return; }
+  await telegraphThenImpact([{r:target.r,c:target.c}]);
+  cameraFocusOnCell(target.r, target.c);
+  
+  let dmg = applyEnhancedDamage(15, u);
+  dmg = applyEnhancedDefense(dmg, target);
+  damageUnit(target.id,dmg,15,`${u.name} 干扰者死 命中 ${target.name}`, u.id);
+  u.dmgDone += dmg;
+  applyBleed(target, 1);
+  
+  // If target has cult target,追击
+  if(hasCultTarget(target)){
+    await sleep(300);
+    appendLog(`${target.name} 有"邪教目标"，追击！`);
+    await telegraphThenImpact([{r:target.r,c:target.c}]);
+    if(target.hp > 0){
+      let dmg2 = applyEnhancedDamage(15, u);
+      dmg2 = applyEnhancedDefense(dmg2, target);
+      damageUnit(target.id,dmg2,15,`${u.name} 干扰者死·追击 命中 ${target.name}`, u.id);
+      u.dmgDone += dmg2;
+      applyBleed(target, 1);
+    }
+  }
+  
+  unitActed(u);
+}
+
+// 雏形赫雷西成员 - 追上
+async function heresyBasic_Chase(u, payload){
+  if(!payload || !payload.r || !payload.c){ appendLog('追上：无效位置'); unitActed(u); return; }
+  const occ=getUnitAt(payload.r,payload.c); if(occ){ appendLog('追上：位置被占用'); unitActed(u); return; }
+  
+  // Consume 5 SP
+  applySpDamage(u, 5, {reason:`${u.name} 使用追上：-5 SP`});
+  
+  u.r=payload.r; u.c=payload.c;
+  registerUnitMove(u);
+  appendLog(`${u.name} 追上移动到 (${u.r},${u.c})`);
+  
+  // Check if any enemy within 3x3 has cult target
+  const inRange = Object.values(units).filter(tu => 
+    tu.side !== u.side && tu.hp > 0 && 
+    Math.abs(tu.r - u.r) <= 1 && Math.abs(tu.c - u.c) <= 1 &&
+    hasCultTarget(tu)
+  );
+  
+  if(inRange.length > 0){
+    u.hp = Math.min(u.maxHp, u.hp + 10);
+    u.sp = Math.min(u.maxSp, u.sp + 5);
+    syncSpBroken(u);
+    showGainFloat(u,10,5);
+    appendLog(`${u.name} 因目标有"邪教目标"恢复10HP和5SP`);
+  }
+  
+  unitActed(u);
+}
+
+// 雏形赫雷西成员 - 献祭
+async function heresyBasic_Sacrifice(u){
+  // Sacrifice 20 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 20);
+  showDamageFloat(u,20,0);
+  appendLog(`${u.name} 献祭牺牲20HP`);
+  
+  // Add violence buff to self
+  updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
+  
+  // Find nearest enemy and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  if(enemies.length > 0){
+    let nearest = enemies[0];
+    let minDist = mdist(u, nearest);
+    for(const e of enemies){
+      const d = mdist(u, e);
+      if(d < minDist){ minDist = d; nearest = e; }
+    }
+    addCultTarget(nearest, 1);
+    appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  }
+  
+  unitActed(u);
+}
+
+// 雏形赫雷西成员 - 讨回公道！
+async function heresyBasic_Revenge(u, target){
+  if(!target || target.hp<=0){ appendLog('讨回公道：没有目标'); unitActed(u); return; }
+  
+  // Sacrifice 35 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 35);
+  showDamageFloat(u,35,0);
+  appendLog(`${u.name} 讨回公道牺牲35HP`);
+  
+  await telegraphThenImpact([{r:target.r,c:target.c}]);
+  cameraFocusOnCell(target.r, target.c);
+  
+  // 4 scratches
+  for(let i=0; i<4; i++){
+    if(target.hp <= 0) break;
+    let dmg = applyEnhancedDamage(10, u);
+    dmg = applyEnhancedDefense(dmg, target);
+    damageUnit(target.id,dmg,5,`${u.name} 讨回公道·第${i+1}次抓挠 命中 ${target.name}`, u.id);
+    u.dmgDone += dmg;
+    applyBleed(target, 1);
+    if(i < 3) await stageMark([{r:target.r,c:target.c}]);
+  }
+  
+  // If target has cult target, repeat
+  if(target.hp > 0 && hasCultTarget(target)){
+    await sleep(300);
+    appendLog(`${target.name} 有"邪教目标"，追击！`);
+    for(let i=0; i<4; i++){
+      if(target.hp <= 0) break;
+      await telegraphThenImpact([{r:target.r,c:target.c}]);
+      let dmg = applyEnhancedDamage(10, u);
+      dmg = applyEnhancedDefense(dmg, target);
+      damageUnit(target.id,dmg,5,`${u.name} 讨回公道·追击·第${i+1}次抓挠 命中 ${target.name}`, u.id);
+      u.dmgDone += dmg;
+      applyBleed(target, 1);
+      if(i < 3) await stageMark([{r:target.r,c:target.c}]);
+    }
+  }
+  
+  unitActed(u);
+}
+
+// 法形赫雷西成员 - 魔音影响
+async function heresyMage_MagicSound(u){
+  const targets = [];
+  const cells = range_square_n(u,2);
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets.push(tu);
+    }
+  }
+  
+  if(targets.length === 0){ appendLog('魔音影响：范围内无敌人'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  let hasCultTargetInRange = false;
+  for(const t of targets){
+    let dmg = applyEnhancedDamage(5, u);
+    dmg = applyEnhancedDefense(dmg, t);
+    damageUnit(t.id,dmg,25,`${u.name} 魔音影响 命中 ${t.name}`, u.id);
+    u.dmgDone += dmg;
+    updateStatusStacks(t,'resentStacks', (t.status.resentStacks||0) + 1, {label:'怨念',type:'debuff'});
+    if(hasCultTarget(t)) hasCultTargetInRange = true;
+  }
+  
+  // If any target has cult target, heal all allies in range
+  if(hasCultTargetInRange){
+    const allies = Object.values(units).filter(tu => 
+      tu.side === u.side && tu.hp > 0 &&
+      Math.abs(tu.r - u.r) <= 2 && Math.abs(tu.c - u.c) <= 2
+    );
+    for(const a of allies){
+      a.hp = Math.min(a.maxHp, a.hp + 15);
+      a.sp = Math.min(a.maxSp, a.sp + 15);
+      syncSpBroken(a);
+      showGainFloat(a,15,15);
+    }
+    appendLog(`${u.name} 魔音影响：因目标有"邪教目标"，友军恢复15HP和15SP`);
+  }
+  
+  unitActed(u);
+}
+
+// 法形赫雷西成员 - 追上
+async function heresyMage_Chase(u, payload){
+  if(!payload || !payload.r || !payload.c){ appendLog('追上：无效位置'); unitActed(u); return; }
+  const occ=getUnitAt(payload.r,payload.c); if(occ){ appendLog('追上：位置被占用'); unitActed(u); return; }
+  
+  // Consume 5 SP
+  applySpDamage(u, 5, {reason:`${u.name} 使用追上：-5 SP`});
+  
+  u.r=payload.r; u.c=payload.c;
+  registerUnitMove(u);
+  appendLog(`${u.name} 追上移动到 (${u.r},${u.c})`);
+  
+  // Check if any enemy within 3x3 has cult target
+  const inRange = Object.values(units).filter(tu => 
+    tu.side !== u.side && tu.hp > 0 && 
+    Math.abs(tu.r - u.r) <= 1 && Math.abs(tu.c - u.c) <= 1 &&
+    hasCultTarget(tu)
+  );
+  
+  if(inRange.length > 0){
+    u.hp = Math.min(u.maxHp, u.hp + 10);
+    u.sp = Math.min(u.maxSp, u.sp + 5);
+    syncSpBroken(u);
+    showGainFloat(u,10,5);
+    appendLog(`${u.name} 因目标有"邪教目标"恢复10HP和5SP`);
+  }
+  
+  unitActed(u);
+}
+
+// 法形赫雷西成员 - 献祭
+async function heresyMage_Sacrifice(u){
+  // Sacrifice 20 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 20);
+  showDamageFloat(u,20,0);
+  appendLog(`${u.name} 献祭牺牲20HP`);
+  
+  // Add violence buff to any ally (random)
+  const allies = Object.values(units).filter(tu => tu.side === u.side && tu.hp > 0);
+  if(allies.length > 0){
+    const target = allies[Math.floor(Math.random() * allies.length)];
+    updateStatusStacks(target,'violenceStacks', (target.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
+    appendLog(`${u.name} 给 ${target.name} 增加一层暴力`);
+  }
+  
+  // Find nearest enemy and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  if(enemies.length > 0){
+    let nearest = enemies[0];
+    let minDist = mdist(u, nearest);
+    for(const e of enemies){
+      const d = mdist(u, e);
+      if(d < minDist){ minDist = d; nearest = e; }
+    }
+    addCultTarget(nearest, 1);
+    appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  }
+  
+  unitActed(u);
+}
+
+// 法形赫雷西成员 - 毫无尊严
+async function heresyMage_Shameless(u){
+  // Sacrifice 35 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 35);
+  showDamageFloat(u,35,0);
+  appendLog(`${u.name} 毫无尊严牺牲35HP`);
+  
+  const targets = [];
+  const cells = range_square_n(u,2);
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets.push(tu);
+    }
+  }
+  
+  if(targets.length === 0){ appendLog('毫无尊严：范围内无敌人'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  let hasCultTargetInRange = false;
+  for(const t of targets){
+    applySpDamage(t, 25, {reason:`${u.name} 毫无尊严 命中 ${t.name}：-25 SP`});
+    // Add level 1 vulnerability (15% damage increase this turn)
+    if(!t.status.vulnerability) t.status.vulnerability = 0;
+    t.status.vulnerability += 0.15;
+    updateStatusStacks(t,'vulnerability', t.status.vulnerability, {label:'脆弱',type:'debuff'});
+    if(hasCultTarget(t)) hasCultTargetInRange = true;
+  }
+  
+  // If any target has cult target, heal all allies in range
+  if(hasCultTargetInRange){
+    const allies = Object.values(units).filter(tu => 
+      tu.side === u.side && tu.hp > 0 &&
+      Math.abs(tu.r - u.r) <= 2 && Math.abs(tu.c - u.c) <= 2
+    );
+    for(const a of allies){
+      a.hp = Math.min(a.maxHp, a.hp + 15);
+      a.sp = Math.min(a.maxSp, a.sp + 15);
+      syncSpBroken(a);
+      showGainFloat(a,15,15);
+    }
+    appendLog(`${u.name} 毫无尊严：因目标有"邪教目标"，友军恢复15HP和15SP`);
+  }
+  
+  unitActed(u);
+}
+
+// 刺形赫雷西成员 - 割喉
+async function heresyAssassin_Throat(u, target){
+  if(!target || target.hp<=0){ appendLog('割喉：没有目标'); unitActed(u); return; }
+  await telegraphThenImpact([{r:target.r,c:target.c}]);
+  cameraFocusOnCell(target.r, target.c);
+  
+  let dmg = 20;
+  // Triangle form passive: ignores all damage reduction
+  // No defense application
+  if(hasCultTarget(target)){
+    dmg = Math.floor(dmg * 1.25);
+    appendLog(`${target.name} 有"邪教目标"，伤害提升25%`);
+  }
+  
+  damageUnit(target.id,dmg,5,`${u.name} 割喉 命中 ${target.name}`, u.id);
+  u.dmgDone += dmg;
+  
+  unitActed(u);
+}
+
+// 刺形赫雷西成员 - 暗袭
+async function heresyAssassin_Ambush(u, payload){
+  if(!payload || !payload.r || !payload.c){ appendLog('暗袭：无效位置'); unitActed(u); return; }
+  const occ=getUnitAt(payload.r,payload.c); if(occ){ appendLog('暗袭：位置被占用'); unitActed(u); return; }
+  
+  u.r=payload.r; u.c=payload.c;
+  registerUnitMove(u);
+  appendLog(`${u.name} 暗袭移动到 (${u.r},${u.c})`);
+  
+  // Check adjacent enemies with cult target
+  const adjacent = range_adjacent(u);
+  let nearestWithCult = null;
+  let minDist = 999;
+  for(const adj of adjacent){
+    const tu = getUnitAt(adj.r, adj.c);
+    if(tu && tu.side !== u.side && tu.hp > 0 && hasCultTarget(tu)){
+      const d = mdist(u, tu);
+      if(d < minDist){
+        minDist = d;
+        nearestWithCult = tu;
+      }
+    }
+  }
+  
+  if(nearestWithCult){
+    await sleep(300);
+    appendLog(`${u.name} 追击割喉！`);
+    await heresyAssassin_Throat(u, nearestWithCult);
+    return; // unitActed already called in Throat
+  }
+  
+  unitActed(u);
+}
+
+// 刺形赫雷西成员 - 献祭
+async function heresyAssassin_Sacrifice(u){
+  // Sacrifice 10 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 10);
+  showDamageFloat(u,10,0);
+  appendLog(`${u.name} 献祭牺牲10HP`);
+  
+  // Add agile buff to self
+  updateStatusStacks(u,'agileStacks', (u.status.agileStacks||0) + 1, {label:'灵活',type:'buff'});
+  
+  // Find nearest enemy and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  if(enemies.length > 0){
+    let nearest = enemies[0];
+    let minDist = mdist(u, nearest);
+    for(const e of enemies){
+      const d = mdist(u, e);
+      if(d < minDist){ minDist = d; nearest = e; }
+    }
+    addCultTarget(nearest, 1);
+    appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  }
+  
+  unitActed(u);
+}
+
+// 刺形赫雷西成员 - 血溅当场
+async function heresyAssassin_BloodSplash(u, target){
+  if(!target || target.hp<=0){ appendLog('血溅当场：没有目标'); unitActed(u); return; }
+  
+  // Sacrifice 30 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 30);
+  showDamageFloat(u,30,0);
+  appendLog(`${u.name} 血溅当场牺牲30HP`);
+  
+  await telegraphThenImpact([{r:target.r,c:target.c}]);
+  cameraFocusOnCell(target.r, target.c);
+  
+  let dmg = 45;
+  // Triangle form passive: ignores all damage reduction
+  if(hasCultTarget(target)){
+    dmg += 10;
+    applySpDamage(target, 5, {reason:`${u.name} 血溅当场（邪教目标加成）`});
+    updateStatusStacks(u,'agileStacks', (u.status.agileStacks||0) + 1, {label:'灵活',type:'buff'});
+    appendLog(`${target.name} 有"邪教目标"，额外伤害和自己获得灵活`);
+  }
+  
+  damageUnit(target.id,dmg,0,`${u.name} 血溅当场 命中 ${target.name}`, u.id);
+  u.dmgDone += dmg;
+  
+  unitActed(u);
+}
+
+// 赫雷西初代精英成员 - 异臂
+async function heresyElite_Arm(u, desc){
+  const dir = desc.dir || u.facing;
+  const cells = range_forward_n(u,2,dir);
+  const targets = [];
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets.push(tu);
+    }
+  }
+  
+  if(targets.length === 0){ appendLog('异臂：范围内无敌人'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  for(const t of targets){
+    let dmg = 15;
+    damageUnit(t.id,dmg,5,`${u.name} 异臂 命中 ${t.name}`, u.id);
+    u.dmgDone += dmg;
+    applyBleed(t, 1);
+    if(hasCultTarget(t)){
+      updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
+      appendLog(`${u.name} 因目标有"邪教目标"获得一层暴力`);
+    }
+  }
+  
+  unitActed(u);
+}
+
+// 赫雷西初代精英成员 - 重锤
+async function heresyElite_Hammer(u){
+  const targets = [];
+  const cells = range_square_n(u,2);
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets.push(tu);
+    }
+  }
+  
+  if(targets.length === 0){ appendLog('重锤：范围内无敌人'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  let cultTargetCount = 0;
+  for(const t of targets){
+    let dmg = 20;
+    damageUnit(t.id,dmg,5,`${u.name} 重锤 命中 ${t.name}`, u.id);
+    u.dmgDone += dmg;
+    applyBleed(t, 1);
+    if(hasCultTarget(t)) cultTargetCount++;
+  }
+  
+  // If at least 2 targets have cult target, apply vulnerability
+  if(cultTargetCount >= 2){
+    for(const t of targets){
+      if(!t.status.vulnerability) t.status.vulnerability = 0;
+      t.status.vulnerability += 0.15;
+      updateStatusStacks(t,'vulnerability', t.status.vulnerability, {label:'脆弱',type:'debuff'});
+    }
+    appendLog(`${u.name} 重锤：因至少2个目标有"邪教目标"，所有目标获得脆弱`);
+  }
+  
+  unitActed(u);
+}
+
+// 赫雷西初代精英成员 - 献祭
+async function heresyElite_Sacrifice(u){
+  // Sacrifice 10 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 10);
+  showDamageFloat(u,10,0);
+  appendLog(`${u.name} 献祭牺牲10HP`);
+  
+  // Add violence buff to self
+  updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
+  
+  // Find nearest enemy and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  if(enemies.length > 0){
+    let nearest = enemies[0];
+    let minDist = mdist(u, nearest);
+    for(const e of enemies){
+      const d = mdist(u, e);
+      if(d < minDist){ minDist = d; nearest = e; }
+    }
+    addCultTarget(nearest, 1);
+    appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  }
+  
+  unitActed(u);
+}
+
+// 赫雷西初代精英成员 - 爆锤
+async function heresyElite_ExplosiveHammer(u){
+  // Sacrifice 30 HP
+  const before = u.hp;
+  u.hp = Math.max(1, u.hp - 30);
+  showDamageFloat(u,30,0);
+  appendLog(`${u.name} 爆锤牺牲30HP`);
+  
+  // Stage 1: 3x3 - 15HP + bleed
+  const cells3x3 = range_square_n(u,1);
+  const targets1 = [];
+  for(const c of cells3x3){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets1.push(tu);
+    }
+  }
+  
+  if(targets1.length > 0){
+    await telegraphThenImpact(cells3x3);
+    for(const t of targets1){
+      damageUnit(t.id,15,0,`${u.name} 爆锤·第一击 命中 ${t.name}`, u.id);
+      u.dmgDone += 15;
+      applyBleed(t, 1);
+    }
+    await stageMark(cells3x3);
+  }
+  
+  // Stage 2: 3x3 - 15HP + 5SP
+  if(targets1.length > 0){
+    await telegraphThenImpact(cells3x3);
+    for(const t of targets1){
+      if(t.hp > 0){
+        damageUnit(t.id,15,5,`${u.name} 爆锤·第二击 命中 ${t.name}`, u.id);
+        u.dmgDone += 15;
+      }
+    }
+    await stageMark(cells3x3);
+  }
+  
+  // Stage 3: 5x5 - 20HP + 5SP + bleed
+  const cells5x5 = range_square_n(u,2);
+  const targets2 = [];
+  let hasCultTarget = false;
+  for(const c of cells5x5){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets2.push(tu);
+      if(hasCultTarget(tu)) hasCultTarget = true;
+    }
+  }
+  
+  if(targets2.length > 0){
+    await telegraphThenImpact(cells5x5);
+    for(const t of targets2){
+      if(t.hp > 0){
+        damageUnit(t.id,20,5,`${u.name} 爆锤·第三击 命中 ${t.name}`, u.id);
+        u.dmgDone += 20;
+        applyBleed(t, 1);
+      }
+    }
+  }
+  
+  if(hasCultTarget){
+    updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
+    appendLog(`${u.name} 因击中邪教目标获得一层暴力`);
+  }
+  
+  unitActed(u);
+}
+
+// Helper: Check if unit has any debuff
+function hasAnyDebuff(u){
+  if(!u || !u.status) return false;
+  return u.status.stunned > 0 || u.status.bleed > 0 || u.status.resentStacks > 0 ||
+         u.status.paralyzed > 0 || (u.status.vulnerability && u.status.vulnerability > 0) ||
+         (u.status.cultTarget && u.status.cultTarget > 0);
+}
+
+// 组装型进阶赫雷西成员 - 以神明之名："祝福"
+async function heresyBoss_Blessing(u){
+  const allies = [];
+  const cells = range_square_n(u,3);
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side === u.side && tu.hp > 0){
+      allies.push(tu);
+    }
+  }
+  
+  if(allies.length === 0){ appendLog('祝福：范围内无友军'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  for(const a of allies){
+    updateStatusStacks(a,'violenceStacks', (a.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
+  }
+  appendLog(`${u.name} 使用祝福，所有友军获得一层暴力`);
+  
+  unitActed(u);
+}
+
+// 组装型进阶赫雷西成员 - 以神明之名："关怀"
+async function heresyBoss_Care(u){
+  const allies = [];
+  const cells = range_square_n(u,3);
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side === u.side && tu.hp > 0){
+      allies.push(tu);
+    }
+  }
+  
+  if(allies.length === 0){ appendLog('关怀：范围内无友军'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  for(const a of allies){
+    a.hp = Math.min(a.maxHp, a.hp + 25);
+    a.sp = Math.min(a.maxSp, a.sp + 10);
+    syncSpBroken(a);
+    showGainFloat(a,25,10);
+  }
+  appendLog(`${u.name} 使用关怀，所有友军恢复25HP和10SP`);
+  
+  unitActed(u);
+}
+
+// 组装型进阶赫雷西成员 - 以神明之名："自由"
+async function heresyBoss_Freedom(u){
+  const allies = [];
+  const cells = range_square_n(u,3);
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side === u.side && tu.hp > 0 && hasAnyDebuff(tu)){
+      allies.push(tu);
+    }
+  }
+  
+  if(allies.length === 0){ appendLog('自由：范围内无需要清除debuff的友军'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  for(const a of allies){
+    // Clear all debuffs
+    a.status.stunned = 0;
+    a.status.bleed = 0;
+    a.status.resentStacks = 0;
+    a.status.paralyzed = 0;
+    if(a.status.vulnerability) a.status.vulnerability = 0;
+    if(a.status.cultTarget) a.status.cultTarget = 0;
+    // Update UI for all cleared debuffs
+    updateStatusStacks(a,'stunned',0,{label:'眩晕',type:'debuff'});
+    updateStatusStacks(a,'bleed',0,{label:'流血',type:'debuff'});
+    updateStatusStacks(a,'resentStacks',0,{label:'怨念',type:'debuff'});
+    updateStatusStacks(a,'paralyzed',0,{label:'恐惧',type:'debuff'});
+    updateStatusStacks(a,'vulnerability',0,{label:'脆弱',type:'debuff'});
+    updateStatusStacks(a,'cultTarget',0,{label:'邪教目标',type:'debuff'});
+  }
+  appendLog(`${u.name} 使用自由，清除所有友军的负面效果`);
+  
+  unitActed(u);
+}
+
+// Helper: Find nearest empty cell to unit
+function findNearestEmptyCell(u){
+  for(let dist=1; dist<=10; dist++){
+    const candidates = [];
+    for(let dr=-dist; dr<=dist; dr++){
+      for(let dc=-dist; dc<=dist; dc++){
+        if(Math.abs(dr) + Math.abs(dc) !== dist) continue;
+        const r = u.r + dr;
+        const c = u.c + dc;
+        if(clampCell(r,c) && !getUnitAt(r,c)){
+          candidates.push({r,c});
+        }
+      }
+    }
+    if(candidates.length > 0){
+      return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+  }
+  return null;
+}
+
+// 组装型进阶赫雷西成员 - 协助我们！
+async function heresyBoss_SummonBasic(u){
+  const pos = findNearestEmptyCell(u);
+  if(!pos){ appendLog('协助我们：无空位可召唤'); unitActed(u); return; }
+  
+  // Create new unit
+  const newId = `heresy_basic_summon_${Date.now()}`;
+  const heresyBasicConfig = {
+    size:1, stunThreshold:1, spFloor:0, disableSpCrash:false, initialSp:70,
+    pullImmune:false, restoreOnZeroPct:1.0,
+  };
+  units[newId] = createUnit(newId,'雏形赫雷西成员','enemy',25, pos.r, pos.c, 150, 70, 1.0, 0, 
+    ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
+  
+  appendLog(`${u.name} 召唤了雏形赫雷西成员 at (${pos.r},${pos.c})`);
+  ensureStartHand(units[newId]);
+  renderAll();
+  
+  unitActed(u);
+}
+
+// 组装型进阶赫雷西成员 - 辅助我们！
+async function heresyBoss_SummonMage(u){
+  const pos = findNearestEmptyCell(u);
+  if(!pos){ appendLog('辅助我们：无空位可召唤'); unitActed(u); return; }
+  
+  // Create new unit
+  const newId = `heresy_mage_summon_${Date.now()}`;
+  const heresyMageConfig = {
+    size:1, stunThreshold:1, spFloor:0, disableSpCrash:false, initialSp:90,
+    pullImmune:false, restoreOnZeroPct:1.0,
+  };
+  units[newId] = createUnit(newId,'法形赫雷西成员','enemy',25, pos.r, pos.c, 100, 90, 1.0, 0,
+    ['loyalFaith','gift','enhancedBody','godsCommand'], heresyMageConfig);
+  
+  appendLog(`${u.name} 召唤了法形赫雷西成员 at (${pos.r},${pos.c})`);
+  ensureStartHand(units[newId]);
+  renderAll();
+  
+  unitActed(u);
+}
+
+// 组装型进阶赫雷西成员 - 暗杀令
+async function heresyBoss_SummonAssassin(u){
+  const pos = findNearestEmptyCell(u);
+  if(!pos){ appendLog('暗杀令：无空位可召唤'); unitActed(u); return; }
+  
+  // Create new unit at half HP
+  const newId = `heresy_assassin_summon_${Date.now()}`;
+  const heresyAssassinConfig = {
+    size:1, stunThreshold:1, spFloor:0, disableSpCrash:false, initialSp:100,
+    pullImmune:false, restoreOnZeroPct:1.0,
+  };
+  units[newId] = createUnit(newId,'刺形赫雷西成员','enemy',25, pos.r, pos.c, 50, 100, 1.0, 0,
+    ['loyalFaith','hiddenGift','triangleForm','godsCommand'], heresyAssassinConfig);
+  units[newId].hp = 25; // Half HP
+  
+  appendLog(`${u.name} 召唤了半血刺形赫雷西成员 at (${pos.r},${pos.c})`);
+  ensureStartHand(units[newId]);
+  renderAll();
+  
+  unitActed(u);
+}
+
+// 组装型进阶赫雷西成员 - 以神明之名："清除"
+async function heresyBoss_Purge(u, desc){
+  const dir = desc.dir || u.facing;
+  const cells = forwardRectCentered(u,dir,3,3);
+  const targets = [];
+  for(const c of cells){
+    const tu = getUnitAt(c.r,c.c);
+    if(tu && tu.side !== u.side && tu.hp > 0){
+      targets.push(tu);
+    }
+  }
+  
+  if(targets.length === 0){ appendLog('清除：范围内无敌人'); unitActed(u); return; }
+  
+  await telegraphThenImpact(cells);
+  
+  for(const t of targets){
+    let dmg = 15;
+    let spDmg = 15;
+    
+    // Detonate cult target stacks
+    const cultStacks = getCultTargetStacks(t);
+    if(cultStacks > 0){
+      dmg += cultStacks * 10;
+      spDmg += cultStacks * 10;
+      clearCultTarget(t);
+      appendLog(`${t.name} 的${cultStacks}层邪教目标被引爆！`);
+    }
+    
+    damageUnit(t.id,dmg,spDmg,`${u.name} 清除 命中 ${t.name}`, u.id);
+    u.dmgDone += dmg;
+  }
+  
+  unitActed(u);
+}
+
 // —— Khathia 防御姿态兼容（保留旧函数以支持玩家技能） ——
 // —— 技能池/抽牌（含调整：Katz/Nelya/Kyn 技能）；移动卡统一蓝色 —— 
 function skill(name,cost,color,desc,rangeFn,execFn,estimate={},meta={}){ return {name,cost,color,desc,rangeFn,execFn,estimate,meta}; }
@@ -2458,6 +3310,164 @@ function buildSkillFactoriesForUnit(u){
         (uu)=> karmaDeepBreath(uu),
         {},
         {castMs:700}
+      )}
+    );
+  } else if(u.id.startsWith('heresy_basic_')){
+    // 雏形赫雷西成员技能池
+    F.push(
+      { key:'干扰者死', prob:0.80, cond:()=>true, make:()=> skill('干扰者死',1,'green','前方1格：15HP+15SP+1层流血',
+        (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
+        (uu,target)=> heresyBasic_Interfere(uu,target),
+        {},
+        {castMs:900}
+      )},
+      { key:'追上', prob:0.40, cond:()=>true, make:()=> skill('追上',2,'blue','移动3格，消耗5SP',
+        (uu)=> range_move_radius(uu,3),
+        (uu,payload)=> heresyBasic_Chase(uu,payload),
+        {},
+        {moveSkill:true, moveRadius:3, castMs:600}
+      )},
+      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲20HP增加一层暴力，给最近敌人上"邪教目标"',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyBasic_Sacrifice(uu),
+        {},
+        {castMs:800}
+      )},
+      { key:'讨回公道！', prob:0.10, cond:()=>true, make:()=> skill('讨回公道！',3,'red','多段：牺牲35HP，前方2格：4次抓挠，每次10HP+5SP+1层流血',
+        (uu,aimDir)=> aimDir? range_forward_n(uu,2,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_forward_n(uu,2,d).forEach(x=>a.push(x)); return a;})(),
+        (uu,target)=> heresyBasic_Revenge(uu,target),
+        {},
+        {castMs:1400}
+      )}
+    );
+  } else if(u.id.startsWith('heresy_mage_')){
+    // 法形赫雷西成员技能池
+    F.push(
+      { key:'魔音影响', prob:0.80, cond:()=>true, make:()=> skill('魔音影响',1,'green','以自身为中心5x5：所有敌人-5HP-25SP+1层怨念',
+        (uu)=> range_square_n(uu,2),
+        (uu)=> heresyMage_MagicSound(uu),
+        {aoe:true},
+        {castMs:1000}
+      )},
+      { key:'追上', prob:0.40, cond:()=>true, make:()=> skill('追上',2,'blue','移动3格，消耗5SP',
+        (uu)=> range_move_radius(uu,3),
+        (uu,payload)=> heresyMage_Chase(uu,payload),
+        {},
+        {moveSkill:true, moveRadius:3, castMs:600}
+      )},
+      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲20HP给任意友方增加一层暴力，给最近敌人上"邪教目标"',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyMage_Sacrifice(uu),
+        {},
+        {castMs:800}
+      )},
+      { key:'毫无尊严', prob:0.10, cond:()=>true, make:()=> skill('毫无尊严',3,'red','牺牲35HP，以自身为中心5x5：所有敌人-25SP+1层一级脆弱',
+        (uu)=> range_square_n(uu,2),
+        (uu)=> heresyMage_Shameless(uu),
+        {aoe:true},
+        {castMs:1100}
+      )}
+    );
+  } else if(u.id.startsWith('heresy_assassin_')){
+    // 刺形赫雷西成员技能池
+    F.push(
+      { key:'割喉', prob:0.80, cond:()=>true, make:()=> skill('割喉',2,'green','前方1格：20HP+5SP',
+        (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
+        (uu,target)=> heresyAssassin_Throat(uu,target),
+        {},
+        {castMs:900}
+      )},
+      { key:'暗袭', prob:0.50, cond:()=>true, make:()=> skill('暗袭',2,'blue','移动5格内任意位置',
+        (uu)=> range_move_radius(uu,5),
+        (uu,payload)=> heresyAssassin_Ambush(uu,payload),
+        {},
+        {moveSkill:true, moveRadius:5, castMs:600}
+      )},
+      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲10HP给自己增加一层灵活，给最近敌人上"邪教目标"',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyAssassin_Sacrifice(uu),
+        {},
+        {castMs:800}
+      )},
+      { key:'血溅当场', prob:0.15, cond:()=>true, make:()=> skill('血溅当场',3,'red','牺牲30HP，前方1格：45HP',
+        (uu,aimDir,aimCell)=> aimCell && mdist(uu,aimCell)===1? [{r:aimCell.r,c:aimCell.c,dir:cardinalDirFromDelta(aimCell.r-uu.r,aimCell.c-uu.c)}] : range_adjacent(uu),
+        (uu,target)=> heresyAssassin_BloodSplash(uu,target),
+        {},
+        {castMs:1000}
+      )}
+    );
+  } else if(u.id.startsWith('heresy_elite_')){
+    // 赫雷西初代精英成员技能池
+    F.push(
+      { key:'异臂', prob:0.80, cond:()=>true, make:()=> skill('异臂',2,'green','前方2格：15HP+5SP+1层流血',
+        (uu,aimDir)=> aimDir? range_forward_n(uu,2,aimDir) : (()=>{const a=[]; for(const d in DIRS) range_forward_n(uu,2,d).forEach(x=>a.push(x)); return a;})(),
+        (uu,desc)=> heresyElite_Arm(uu,desc),
+        {aoe:true},
+        {castMs:1000}
+      )},
+      { key:'重锤', prob:0.50, cond:()=>true, make:()=> skill('重锤',2,'green','以自身为中心5x5：所有敌人20HP+5SP+1层流血',
+        (uu)=> range_square_n(uu,2),
+        (uu)=> heresyElite_Hammer(uu),
+        {aoe:true},
+        {castMs:1100}
+      )},
+      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲10HP给自己增加一层暴力，给最近敌人上"邪教目标"',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyElite_Sacrifice(uu),
+        {},
+        {castMs:800}
+      )},
+      { key:'爆锤', prob:0.15, cond:()=>true, make:()=> skill('爆锤',3,'red','多段：牺牲30HP，3x3范围：15HP+1层流血，再15HP+5SP，最后5x5范围：20HP+5SP+1层流血',
+        (uu)=> range_square_n(uu,2),
+        (uu)=> heresyElite_ExplosiveHammer(uu),
+        {aoe:true},
+        {castMs:1600}
+      )}
+    );
+  } else if(u.id === 'heresy_boss_b'){
+    // 组装型进阶赫雷西成员（赫雷西成员B）技能池
+    F.push(
+      { key:'以神明之名："祝福"', prob:0.40, cond:()=> Object.values(units).some(ou=>ou.side===u.side && ou.id!==u.id && ou.hp>0), make:()=> skill('以神明之名："祝福"',2,'orange','7x7内所有友方+1层暴力',
+        (uu)=> range_square_n(uu,3),
+        (uu)=> heresyBoss_Blessing(uu),
+        {aoe:true},
+        {castMs:900}
+      )},
+      { key:'以神明之名："关怀"', prob:0.40, cond:()=> Object.values(units).some(ou=>ou.side===u.side && ou.id!==u.id && ou.hp>0), make:()=> skill('以神明之名："关怀"',2,'pink','7x7内所有友方（含自己）+25HP+10SP',
+        (uu)=> range_square_n(uu,3),
+        (uu)=> heresyBoss_Care(uu),
+        {aoe:true},
+        {castMs:900}
+      )},
+      { key:'以神明之名："自由"', prob:0.40, cond:()=> Object.values(units).some(ou=>ou.side===u.side && ou.id!==u.id && ou.hp>0 && hasAnyDebuff(ou)), make:()=> skill('以神明之名："自由"',3,'white','清除7x7内所有友方的所有负面效果',
+        (uu)=> range_square_n(uu,3),
+        (uu)=> heresyBoss_Freedom(uu),
+        {aoe:true},
+        {castMs:1000}
+      )},
+      { key:'协助我们！', prob:0.40, cond:()=>true, make:()=> skill('协助我们！',3,'orange','在最近空格生成一个雏形赫雷西成员',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyBoss_SummonBasic(uu),
+        {},
+        {castMs:1000}
+      )},
+      { key:'辅助我们！', prob:0.40, cond:()=>true, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个法形赫雷西成员',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyBoss_SummonMage(uu),
+        {},
+        {castMs:1000}
+      )},
+      { key:'暗杀令', prob:0.40, cond:()=>true, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> heresyBoss_SummonAssassin(uu),
+        {},
+        {castMs:1000}
+      )},
+      { key:'以神明之名："清除"', prob:0.60, cond:()=>true, make:()=> skill('以神明之名："清除"',2,'red','前方3x3：所有敌人15HP+15SP，引爆所有"邪教目标"（每层10HP+10SP）',
+        (uu,aimDir)=> aimDir? forwardRectCentered(uu,aimDir||uu.facing,3,3) : (()=>{const a=[]; for(const d in DIRS) forwardRectCentered(uu,d,3,3).forEach(x=>a.push(x)); return a;})(),
+        (uu,desc)=> heresyBoss_Purge(uu,desc),
+        {aoe:true},
+        {castMs:1200}
       )}
     );
   } else if(u.id==='officer1' || u.id==='officer2' || u.id==='officer3'){
@@ -3732,7 +4742,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   startCameraLoop();
 
   // 掩体（不可进入）
-  // Intro 战斗：无掩体
+  // 血楼计划：掩体设置
+  // (3,6) to (5,6) - 掩体
+  addCoverRect(6,3,6,5);
+  // (1,9) to (7,9) - 掩体
+  addCoverRect(9,1,9,7);
   injectFXStyles();
 
   // 起手手牌
@@ -3753,9 +4767,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   window.addEventListener('load', ()=> refreshLargeOverlays());
 
-  appendLog('Intro 战斗：地图 7x14，无掩体。');
-  appendLog('刑警队员具有"正义光环"被动：每对方回合恢复15HP。');
-  appendLog('刑警队员的SP降至0时会失去控制权1回合并减少1步，之后自动恢复至80。');
+  appendLog('血楼计划：地图 18x26，赫雷西成员登场。');
+  appendLog('赫雷西成员具有多种被动与技能，包括"邪教目标"机制。');
+  appendLog('击败所有敌人以摧毁墙体并推进战斗。');
 
   const endTurnBtn=document.getElementById('endTurnBtn');
   if(endTurnBtn) endTurnBtn.addEventListener('click', ()=>{ if(interactionLocked) return; endTurn(); });
