@@ -2327,6 +2327,12 @@ function applyBleed(target, layers=1){
   appendLog(`${target.name} 流血层数 -> ${stacks}`);
   return stacks;
 }
+function applyResent(target, layers=1){
+  if(!target || target.hp<=0) return 0;
+  const stacks = addStatusStacks(target,'resentStacks', layers,{label:'怨念', type:'debuff'});
+  appendLog(`${target.name} 怨念层数 -> ${stacks}`);
+  return stacks;
+}
 // 捅 (1步) - 前方1格捅入5HP+5SP，拔出5HP+5SP，造成1层流血
 async function officer_Stab(u, target){
   if(!target || target.hp<=0){ appendLog('捅：没有目标'); unitActed(u); return; }
