@@ -206,6 +206,11 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
     _reflectPct: 0,           // 0.3 表示反弹30%受到的HP伤害
 
     _fortressTurns: 0, // 兼容旧逻辑（已由姿态系统替代）
+
+    // 隐身系统（hiddenGift被动）
+    _invisible: false,                    // 当前是否隐身
+    _roundsSinceLastCombat: 0,            // 上次造成或受到伤害后经过的回合数
+    _invisibilityReactivationThreshold: 3, // 重新隐身需要的回合数
   };
 }
 const units = {};
@@ -346,6 +351,12 @@ function unitCoversCell(u, r, c){
 function getUnitAt(r,c){
   for(const id in units){ const u=units[id]; if(!u || u.hp<=0) continue; if(unitCoversCell(u, r, c)) return u; }
   return null;
+}
+
+function getVisibleUnitAt(r,c){
+  // Returns unit only if visible (for targeting)
+  const u = getUnitAt(r,c);
+  return (u && isUnitVisible(u)) ? u : null;
 }
 function canPlace2x2(u, r, c){
   const cells=[{r,c},{r:r+1,c},{r,c:c+1},{r:r+1,c:c+1}];
@@ -1997,6 +2008,12 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
   u.sp = Math.max(floor, u.sp - finalSp);
   
   const died = prevHp > 0 && u.hp <= 0;
+  
+  // Break invisibility for both attacker and target (hiddenGift passive)
+  if(finalHp > 0 || finalSp > 0){
+    breakInvisibility(u); // Target took damage
+    if(source) breakInvisibility(source); // Attacker dealt damage
+  }
 
   const totalImpact = finalHp + finalSp;
   const heavyHit = trueDamage || totalImpact >= 40 || finalHp >= Math.max(18, Math.round(u.maxHp * 0.3));
@@ -3536,6 +3553,48 @@ function drawSkills(u, n){
 }
 function ensureStartHand(u){ if(u.dealtStart) return; u.skillPool.length = 0; drawSkills(u, START_HAND_COUNT); u.dealtStart = true; appendLog(`${u.name} 起手手牌：${u.skillPool.map(s=>s.name).join(' / ')}`); }
 
+
+// —— 隐身系统（hiddenGift被动）——
+function initializeInvisibility(u){
+  // Units with hiddenGift passive start invisible
+  if(u.passives.includes('hiddenGift')){
+    u._invisible = true;
+    u._roundsSinceLastCombat = 0;
+    appendLog(`${u.name} 进入隐身状态（隐Gift被动）`);
+  }
+}
+
+function breakInvisibility(u){
+  // Break invisibility when unit deals or takes damage
+  if(u._invisible && u.passives.includes('hiddenGift')){
+    u._invisible = false;
+    u._roundsSinceLastCombat = 0;
+    appendLog(`${u.name} 的隐身被解除（造成或受到伤害）`);
+    renderAll();
+  }
+}
+
+function updateInvisibilityTracking(u){
+  // Update invisibility tracking for units with hiddenGift passive
+  if(!u.passives.includes('hiddenGift')) return;
+  
+  if(!u._invisible){
+    u._roundsSinceLastCombat++;
+    if(u._roundsSinceLastCombat >= u._invisibilityReactivationThreshold){
+      u._invisible = true;
+      u._roundsSinceLastCombat = 0;
+      appendLog(`${u.name} 重新进入隐身状态（${u._invisibilityReactivationThreshold}回合未参与战斗）`);
+      renderAll();
+    }
+  }
+}
+
+function isUnitVisible(u){
+  // Check if unit is visible (not invisible or dead)
+  if(!u || u.hp <= 0) return false;
+  if(u._invisible && u.passives.includes('hiddenGift')) return false;
+  return true;
+}
 // —— GOD’S WILL —— 
 function disarmGodsWill(){
   godsWillArmed = false;
@@ -3728,7 +3787,7 @@ function refreshLargeOverlays(){
   battleAreaEl.querySelectorAll('.largeOverlay').forEach(n=>n.remove());
   for(const id in units){
     const u=units[id];
-    if(u && u.hp>0 && u.size===2){
+    if(u && u.hp>0 && u.size===2 && isUnitVisible(u)){
       renderLargeUnitOverlay(u);
     }
   }
@@ -3753,6 +3812,9 @@ function placeUnits(){
 
   for(const id in units){
     const u=units[id]; if(u.hp<=0) continue;
+    
+    // Skip rendering invisible units
+    if(!isUnitVisible(u)) continue;
 
     if(u.size===2){
       renderLargeUnitOverlay(u);
@@ -3798,6 +3860,9 @@ function placeUnits(){
 
 //part 1 结束
 function renderLargeUnitOverlay(u){
+  // Skip rendering invisible units
+  if(!isUnitVisible(u)) return;
+  
   // Pixel-perfect 2x2 overlay using actual cell offsets to avoid rounding drift
   const tl = getCellEl(u.r, u.c);
   const br = getCellEl(u.r+1, u.c+1);
@@ -4046,6 +4111,8 @@ async function handleSkillConfirmCell(u, sk, aimCell){
 function onUnitClick(id){
   if(interactionLocked) return;
   const u=units[id]; if(!u) return;
+  // Can't interact with invisible units (unless using GOD'S WILL)
+  if(!godsWillArmed && !isUnitVisible(u)){ appendLog('无法与隐身单位交互'); return; }
   if(godsWillArmed){ showGodsWillMenuAtUnit(u); return; }
   if(u.side==='enemy' && ENEMY_IS_AI_CONTROLLED){ appendLog('敌方单位由 AI 控制，无法手动操作'); selectedUnitId=id; showSelected(u); return; }
   if(u.side===currentSide && u.status.stunned) appendLog(`${u.name} 眩晕中，无法行动`);
@@ -4277,6 +4344,9 @@ function processUnitsTurnStart(side){
         u.status.resentStacks = Math.max(0, u.status.resentStacks - 1);
       }
     }
+    
+    // Update invisibility tracking (hiddenGift passive)
+    updateInvisibilityTracking(u);
   }
 }
 function processUnitsTurnEnd(side){
@@ -4612,7 +4682,7 @@ function stepTowardNearestPlayer(en){
     registerUnitMove(en);
     enemySteps = Math.max(0, enemySteps - 1);
     updateStepsUI();
-    cameraFocusOnCell(en.r,en.c);
+    if(isUnitVisible(en)) cameraFocusOnCell(en.r,en.c);
     renderAll();
     appendLog(`${en.name} 逼近：向玩家方向移动 1 步`);
     return true;
@@ -4624,7 +4694,7 @@ function stepTowardNearestPlayer(en){
   if(mv.moved){
     enemySteps = Math.max(0, enemySteps - 1);
     updateStepsUI();
-    cameraFocusOnCell(en.r,en.c);
+    if(isUnitVisible(en)) cameraFocusOnCell(en.r,en.c);
     renderAll();
     appendLog(`${en.name} 逼近：向最近玩家挪动 1 步`);
     return true;
@@ -4696,7 +4766,7 @@ async function exhaustEnemySteps(){
           registerUnitMove(en);
           enemySteps = Math.max(0, enemySteps - 1);
           updateStepsUI();
-          cameraFocusOnCell(en.r,en.c);
+          if(isUnitVisible(en)) cameraFocusOnCell(en.r,en.c);
           renderAll();
           appendLog(`${en.name} 试探性移动：消耗 1 步`);
           progressedThisRound = true;
@@ -4715,7 +4785,7 @@ async function exhaustEnemySteps(){
         if(mv.moved){
           enemySteps = Math.max(0, enemySteps - 1);
           updateStepsUI();
-          cameraFocusOnCell(anyMovable.r,anyMovable.c);
+          if(isUnitVisible(anyMovable)) cameraFocusOnCell(anyMovable.r,anyMovable.c);
           renderAll();
           appendLog(`${anyMovable.name} 整队：向集合点挪动 1 步`);
           await aiAwait(120);
@@ -5008,6 +5078,7 @@ function spawnNextWave(wallId){
     const u = units[id];
     if(u.hp > 0 && !u.dealtStart){
       ensureStartHand(u);
+      initializeInvisibility(u);
     }
   }
 }
@@ -5139,6 +5210,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   // 起手手牌
   for(const id in units){ const u=units[id]; if(u.hp>0) ensureStartHand(u); }
+  
+  // 初始化隐身（hiddenGift被动）
+  for(const id in units){ const u=units[id]; if(u.hp>0) initializeInvisibility(u); }
 
   playerSteps = computeBaseSteps();
   enemySteps = computeBaseSteps();
