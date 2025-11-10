@@ -4769,10 +4769,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   // 掩体（不可进入）
   // 血楼计划：掩体设置
-  // (3,6) to (5,6) - 掩体
-  addCoverRect(6,3,6,5);
-  // (1,9) to (7,9) - 掩体
-  addCoverRect(9,1,9,7);
+  // (6,3) to (6,5) - 掩体 (X and Y swapped from original (3,6) to (5,6))
+  addCoverRect(3,6,5,6);
+  // (9,1) to (9,7) - 掩体 (X and Y swapped from original (1,9) to (7,9))
+  addCoverRect(1,9,7,9);
   injectFXStyles();
 
   // 起手手牌
