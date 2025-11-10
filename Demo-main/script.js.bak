@@ -142,13 +142,7 @@ function addCoverRect(r1,c1,r2,c2){
   }
 }
 function isCoverCell(r,c){ return coverCells.has(`${r},${c}`); }
-function clampCell(r,c){ 
-  // Check if cell is blocked by a wall
-  const wall = isWallCell(r, c);
-  if(wall && !wall.destroyed) return false;
-  
-  return r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c); 
-}
+function clampCell(r,c){ return r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c); }
 
 // —— 单位 ——
 function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct, spZeroHpPenalty=0, passives=[], extra={}){
@@ -2327,12 +2321,6 @@ function applyBleed(target, layers=1){
   appendLog(`${target.name} 流血层数 -> ${stacks}`);
   return stacks;
 }
-function applyResent(target, layers=1){
-  if(!target || target.hp<=0) return 0;
-  const stacks = addStatusStacks(target,'resentStacks', layers,{label:'怨念', type:'debuff'});
-  appendLog(`${target.name} 怨念层数 -> ${stacks}`);
-  return stacks;
-}
 // 捅 (1步) - 前方1格捅入5HP+5SP，拔出5HP+5SP，造成1层流血
 async function officer_Stab(u, target){
   if(!target || target.hp<=0){ appendLog('捅：没有目标'); unitActed(u); return; }
@@ -3654,49 +3642,12 @@ function buildGrid(){
       cell.className = 'cell';
       if(isVoidCell(r,c)) cell.classList.add('void');
       if(isCoverCell(r,c)) cell.classList.add('cover');
-      
-      // Check for destructible walls
-      const wall = isWallCell(r, c);
-      if(wall){
-        if(wall.fragile) cell.classList.add('wall-fragile');
-        else cell.classList.add('wall-intact');
-        cell.title = wall.fragile ? '易碎墙体（可被任何攻击摧毁）' : '坚固墙体';
-      }
-      
-      // Check for recovery tiles
-      if(currentWave >= 2 && recoveryTiles.tile1.r === r && recoveryTiles.tile1.c === c && !recoveryTiles.tile1.used){
-        cell.classList.add('recovery-tile');
-        cell.title = '恢复格子：恢复所有HP和SP，获得鸡血Buff';
-      }
-      if(currentWave >= 3 && recoveryTiles.tile2.r === r && recoveryTiles.tile2.c === c && !recoveryTiles.tile2.used){
-        cell.classList.add('recovery-tile');
-        cell.title = '恢复格子：恢复所有HP和SP，获得鸡血Buff';
-      }
-      
-      // Check for blood fog zones
-      for(const zoneKey in bloodFogZones){
-        const zone = bloodFogZones[zoneKey];
-        if(zone.active && zone.cells.some(zc => zc.r === r && zc.c === c)){
-          cell.classList.add('blood-fog');
-          cell.title = '血雾区域：每回合-50HP-50SP+10层流血+10层怨念';
-          break;
-        }
-      }
-      
       cell.dataset.r=r; cell.dataset.c=c;
       const coord=document.createElement('div'); coord.className='coord'; coord.textContent=`${r},${c}`; cell.appendChild(coord);
 
       cell.addEventListener('click', ()=>{
         if(interactionLocked) return;
         const rr=+cell.dataset.r, cc=+cell.dataset.c;
-        
-        // Handle wall click - destroy if fragile
-        const wallAtCell = isWallCell(rr, cc);
-        if(wallAtCell && wallAtCell.fragile){
-          destroyWall(wallAtCell.id);
-          return;
-        }
-        
         if(_skillSelection){
           handleSkillConfirmCell(_skillSelection.unit,_skillSelection.skill,{r:rr,c:cc});
           return;
@@ -5230,11 +5181,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
   applyParalysisAtTurnStart('player');
   processUnitsTurnStart('player');
   updateStepsUI();
-  
-  // Initialize Blood Tower Plan systems
-  initDestructibleWalls();
-  playMusic('Tower.mp3');
-  appendLog('=== 血楼计划：第一波战斗开始 ===');
-  
   setTimeout(()=> playIntroCinematic(), 80);
 });
