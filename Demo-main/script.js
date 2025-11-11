@@ -5035,18 +5035,27 @@ function initDestructibleWalls(){
 
 function isCellBehindIntactWall(r, c){
   // Check if cell is in an area that should only be accessible after a wall is destroyed
-  // Blood fog zone 1 area (22,1) to (26,18) - locked by wall1
-  if(r >= 22 && r <= 26 && c >= 1 && c <= 18){
+  // Starting area (22,1) to (26,18) is ALWAYS accessible (not locked)
+  // This is the initial playable area at game start
+  
+  // Area unlocked by wall1 destruction: (21,1) to (13,13) 
+  // Interpretation: rows 13-21, columns 1-13
+  if(r >= 13 && r <= 21 && c >= 1 && c <= 13){
     return !destructibleWalls.wall1.destroyed;
   }
-  // Blood fog zone 2 area (21,1) to (13,13) - locked by wall2
-  if(r >= 13 && r <= 21 && c >= 1 && c <= 13){
+  
+  // Area unlocked by wall2 destruction: (17,18) to (1,13)
+  // Interpretation: rows 1-17, columns 13-18
+  if(r >= 1 && r <= 17 && c >= 13 && c <= 18){
     return !destructibleWalls.wall2.destroyed;
   }
-  // Blood fog zone 3 area (17,18) to (1,14) - locked by wall3
-  if(r >= 1 && r <= 17 && c >= 14 && c <= 18){
+  
+  // Area unlocked by wall3 destruction: (7,12) to (1,1)
+  // Interpretation: rows 1-7, columns 1-12
+  if(r >= 1 && r <= 7 && c >= 1 && c <= 12){
     return !destructibleWalls.wall3.destroyed;
   }
+  
   return false;
 }
 
