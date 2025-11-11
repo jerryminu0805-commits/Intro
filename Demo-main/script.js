@@ -2485,7 +2485,14 @@ async function officer_ComboSlash(u, target){
 // —— 赫雷西成员技能实现 ——
 // Helper: Check if unit has "邪教目标" status
 function hasCultTarget(u){ return u && u.status && u.status.cultTarget > 0; }
-function addCultTarget(u, stacks=1){ if(!u || !u.status) return; u.status.cultTarget = (u.status.cultTarget||0) + stacks; updateStatusStacks(u,'cultTarget',u.status.cultTarget,{label:'邪教目标',type:'debuff'}); }
+function addCultTarget(u, stacks=1){ 
+  if(!u || !u.status) return; 
+  u.status.cultTarget = (u.status.cultTarget||0) + stacks; 
+  updateStatusStacks(u,'cultTarget',u.status.cultTarget,{label:'邪教目标',type:'debuff'}); 
+  
+  // Check if all players now have cult target, and if so, remove sacrifice from all enemies
+  checkAndRemoveSacrifice(u.side);
+}
 function getCultTargetStacks(u){ return (u && u.status && u.status.cultTarget) || 0; }
 function clearCultTarget(u){ if(!u || !u.status) return; u.status.cultTarget=0; updateStatusStacks(u,'cultTarget',0,{label:'邪教目标',type:'debuff'}); }
 // Helper: Check if all player units have cult target
@@ -2497,6 +2504,24 @@ function allPlayersHaveCultTarget(enemySide){
 function anyPlayerWithoutCultTarget(enemySide){ 
   const players = Object.values(units).filter(u => u.side !== enemySide && u.hp > 0);
   return players.some(p => !hasCultTarget(p));
+}
+// Helper: Remove all Sacrifice skills from enemy units when all players have cult target
+function checkAndRemoveSacrifice(playerSide){
+  if(allPlayersHaveCultTarget('enemy')){
+    // All players have cult target, remove all sacrifice skills from all enemies
+    const enemies = Object.values(units).filter(u => u.side === 'enemy' && u.hp > 0);
+    let removedCount = 0;
+    for(const en of enemies){
+      if(en.skillPool && en.skillPool.length > 0){
+        const originalLength = en.skillPool.length;
+        en.skillPool = en.skillPool.filter(sk => sk.name !== '献祭');
+        removedCount += originalLength - en.skillPool.length;
+      }
+    }
+    if(removedCount > 0){
+      appendLog(`所有玩家都有"邪教目标"标记，所有敌方单位的献祭技能已被移除（共${removedCount}个）`);
+    }
+  }
 }
 
 // Helper: Apply enhanced body passive (20% damage increase for attacks, 20% damage reduction for defense)
@@ -5033,7 +5058,7 @@ const bloodFogZones = {
 const recoveryTiles = {
   tile1: { r: 18, c: 3, used: false },  // (3,18) - after wall 1
   tile2: { r: 9, c: 16, used: false },  // (16,9) - after wall 2
-  tile3: { r: 12, c: 4, used: false, lastRespawnRound: -999 }  // (4,12) - after wall 3, respawns every 10 rounds
+  tile3: { r: 4, c: 12, used: false, lastRespawnRound: -999 }  // (12,4) - after wall 3, respawns every 10 rounds
 };
 
 // Wave tracking
@@ -5303,7 +5328,7 @@ function checkRecoveryTile3Respawn(){
     if(roundsSinceLastRespawn >= 10){
       recoveryTiles.tile3.used = false;
       recoveryTiles.tile3.lastRespawnRound = roundsPassed;
-      appendLog('恢复格子3已重新生成！位置：(4, 12)');
+      appendLog('恢复格子3已重新生成！位置：(12, 4)');
     }
   }
 }
