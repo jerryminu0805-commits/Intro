@@ -4704,6 +4704,15 @@ function buildSkillCandidates(en){
         continue;
       }
       
+      // 献祭技能优先级（刺形、法形、雏形赫雷西成员）
+      const isSacrificeSkill = sk.name === '献祭';
+      const isHeresyUnit = en.name === '刺形赫雷西成员' || en.name === '法形赫雷西成员' || en.name === '雏形赫雷西成员';
+      if(isSacrificeSkill && isHeresyUnit){
+        // 献祭 gets high priority score (25) for these specific heresy units
+        candidates.push({sk, dir:en.facing, score: 25});
+        continue;
+      }
+      
       // 自我增益先（锁链缠绕/堡垒/反伤）
       const selfCells = sk.rangeFn(en, en.facing, null) || [];
       const isSelfOnly = selfCells.length>0 && selfCells.every(c=>c.r===en.r && c.c===en.c);
