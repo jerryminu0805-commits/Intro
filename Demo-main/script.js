@@ -4588,7 +4588,7 @@ function buildSkillCandidates(en){
       }
 
       const dirs = Object.keys(DIRS);
-      const isAdjSkill = ['血肉之刃','怨念之爪','沙包大的拳头','短匕轻挥','捅','连续挥刀','干扰者死','割喉'].includes(sk.name);
+      const isAdjSkill = ['血肉之刃','怨念之爪','沙包大的拳头','短匕轻挥','捅','连续挥刀','干扰者死','割喉','血溅当场'].includes(sk.name);
       if(isAdjSkill){
         const adj = range_adjacent(en);
         for(const c of adj){
@@ -4943,9 +4943,9 @@ function initDestructibleWalls(){
     destructibleWalls.wall3.cells.push({r, c: 13});
   }
   
-  // Blood fog zone 1 - behind wall 1 (bottom left area accessible after wall 1 destroyed)
-  // This is the first player-accessible area after destroying wall 1
-  for(let r = 22; r <= 26; r++){
+  // Blood fog zone 1 - behind wall 1 (area above wall 1, accessible after wall 1 destroyed)
+  // Wall 1 is at r21, c1-5. Zone 1 is the area above it in same columns
+  for(let r = 13; r <= 20; r++){
     for(let c = 1; c <= 5; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone1.cells.push({r, c});
@@ -4953,9 +4953,9 @@ function initDestructibleWalls(){
     }
   }
   
-  // Blood fog zone 2 - behind wall 2 (top right area accessible after wall 2 destroyed)
-  // This is the second player-accessible area after destroying wall 2
-  for(let r = 1; r <= 12; r++){
+  // Blood fog zone 2 - behind wall 2 (area right of wall 2, accessible after wall 2 destroyed)
+  // Wall 2 is at c13, r13-17. Zone 2 is the area to the right of it in same rows
+  for(let r = 13; r <= 17; r++){
     for(let c = 14; c <= 18; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone2.cells.push({r, c});
@@ -4963,8 +4963,8 @@ function initDestructibleWalls(){
     }
   }
   
-  // Blood fog zone 3 - behind wall 3 (top left area accessible after wall 3 destroyed)
-  // This is the third player-accessible area after destroying wall 3
+  // Blood fog zone 3 - behind wall 3 (area left of wall 3, accessible after wall 3 destroyed)
+  // Wall 3 is at c13, r1-7. Zone 3 is the area to the left of it in same rows
   for(let r = 1; r <= 7; r++){
     for(let c = 1; c <= 12; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
@@ -4976,15 +4976,15 @@ function initDestructibleWalls(){
 
 function isCellBehindIntactWall(r, c){
   // Check if cell is in an area that should only be accessible after a wall is destroyed
-  // Blood fog zone 1 area (behind wall 1 at r21, c1-5)
-  if(r >= 22 && r <= 26 && c >= 1 && c <= 5){
+  // Blood fog zone 1 area (above wall 1 at r21, c1-5)
+  if(r >= 13 && r <= 20 && c >= 1 && c <= 5){
     return !destructibleWalls.wall1.destroyed;
   }
-  // Blood fog zone 2 area (behind wall 2 at r13-17, c13)
-  if(r >= 1 && r <= 12 && c >= 14 && c <= 18){
+  // Blood fog zone 2 area (right of wall 2 at c13, r13-17)
+  if(r >= 13 && r <= 17 && c >= 14 && c <= 18){
     return !destructibleWalls.wall2.destroyed;
   }
-  // Blood fog zone 3 area (behind wall 3 at r1-7, c13)
+  // Blood fog zone 3 area (left of wall 3 at c13, r1-7)
   if(r >= 1 && r <= 7 && c >= 1 && c <= 12){
     return !destructibleWalls.wall3.destroyed;
   }
