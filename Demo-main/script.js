@@ -2482,6 +2482,16 @@ function hasCultTarget(u){ return u && u.status && u.status.cultTarget > 0; }
 function addCultTarget(u, stacks=1){ if(!u || !u.status) return; u.status.cultTarget = (u.status.cultTarget||0) + stacks; updateStatusStacks(u,'cultTarget',u.status.cultTarget,{label:'邪教目标',type:'debuff'}); }
 function getCultTargetStacks(u){ return (u && u.status && u.status.cultTarget) || 0; }
 function clearCultTarget(u){ if(!u || !u.status) return; u.status.cultTarget=0; updateStatusStacks(u,'cultTarget',0,{label:'邪教目标',type:'debuff'}); }
+// Helper: Check if all player units have cult target
+function allPlayersHaveCultTarget(enemySide){ 
+  const players = Object.values(units).filter(u => u.side !== enemySide && u.hp > 0);
+  return players.length > 0 && players.every(p => hasCultTarget(p));
+}
+// Helper: Check if any player unit doesn't have cult target
+function anyPlayerWithoutCultTarget(enemySide){ 
+  const players = Object.values(units).filter(u => u.side !== enemySide && u.hp > 0);
+  return players.some(p => !hasCultTarget(p));
+}
 
 // Helper: Apply enhanced body passive (20% damage increase for attacks, 20% damage reduction for defense)
 function applyEnhancedDamage(baseDmg, attacker){
@@ -2567,8 +2577,8 @@ async function heresyBasic_Sacrifice(u){
   // Add violence buff to self
   updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
   
-  // Find nearest enemy and add cult target
-  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  // Find nearest enemy without cult target and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0 && !hasCultTarget(tu));
   if(enemies.length > 0){
     let nearest = enemies[0];
     let minDist = mdist(u, nearest);
@@ -2578,6 +2588,8 @@ async function heresyBasic_Sacrifice(u){
     }
     addCultTarget(nearest, 1);
     appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  } else {
+    appendLog(`${u.name} 献祭：所有敌人都已有"邪教目标"标记`);
   }
   
   unitActed(u);
@@ -2715,8 +2727,8 @@ async function heresyMage_Sacrifice(u){
     appendLog(`${u.name} 给 ${target.name} 增加一层暴力`);
   }
   
-  // Find nearest enemy and add cult target
-  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  // Find nearest enemy without cult target and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0 && !hasCultTarget(tu));
   if(enemies.length > 0){
     let nearest = enemies[0];
     let minDist = mdist(u, nearest);
@@ -2726,6 +2738,8 @@ async function heresyMage_Sacrifice(u){
     }
     addCultTarget(nearest, 1);
     appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  } else {
+    appendLog(`${u.name} 献祭：所有敌人都已有"邪教目标"标记`);
   }
   
   unitActed(u);
@@ -2845,8 +2859,8 @@ async function heresyAssassin_Sacrifice(u){
   // Add agile buff to self
   updateStatusStacks(u,'agileStacks', (u.status.agileStacks||0) + 1, {label:'灵活',type:'buff'});
   
-  // Find nearest enemy and add cult target
-  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  // Find nearest enemy without cult target and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0 && !hasCultTarget(tu));
   if(enemies.length > 0){
     let nearest = enemies[0];
     let minDist = mdist(u, nearest);
@@ -2856,6 +2870,8 @@ async function heresyAssassin_Sacrifice(u){
     }
     addCultTarget(nearest, 1);
     appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  } else {
+    appendLog(`${u.name} 献祭：所有敌人都已有"邪教目标"标记`);
   }
   
   unitActed(u);
@@ -2967,8 +2983,8 @@ async function heresyElite_Sacrifice(u){
   // Add violence buff to self
   updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
   
-  // Find nearest enemy and add cult target
-  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0);
+  // Find nearest enemy without cult target and add cult target
+  const enemies = Object.values(units).filter(tu => tu.side !== u.side && tu.hp > 0 && !hasCultTarget(tu));
   if(enemies.length > 0){
     let nearest = enemies[0];
     let minDist = mdist(u, nearest);
@@ -2978,6 +2994,8 @@ async function heresyElite_Sacrifice(u){
     }
     addCultTarget(nearest, 1);
     appendLog(`${u.name} 给 ${nearest.name} 上了一层"邪教目标"`);
+  } else {
+    appendLog(`${u.name} 献祭：所有敌人都已有"邪教目标"标记`);
   }
   
   unitActed(u);
@@ -3026,12 +3044,12 @@ async function heresyElite_ExplosiveHammer(u){
   // Stage 3: 5x5 - 20HP + 5SP + bleed
   const cells5x5 = range_square_n(u,2);
   const targets2 = [];
-  let hasCultTarget = false;
+  let foundCultTarget = false;
   for(const c of cells5x5){
     const tu = getUnitAt(c.r,c.c);
     if(tu && tu.side !== u.side && tu.hp > 0){
       targets2.push(tu);
-      if(hasCultTarget(tu)) hasCultTarget = true;
+      if(hasCultTarget(tu)) foundCultTarget = true;
     }
   }
   
@@ -3046,7 +3064,7 @@ async function heresyElite_ExplosiveHammer(u){
     }
   }
   
-  if(hasCultTarget){
+  if(foundCultTarget){
     updateStatusStacks(u,'violenceStacks', (u.status.violenceStacks||0) + 1, {label:'暴力',type:'buff'});
     appendLog(`${u.name} 因击中邪教目标获得一层暴力`);
   }
@@ -3416,7 +3434,7 @@ function buildSkillFactoriesForUnit(u){
         {},
         {moveSkill:true, moveRadius:3, castMs:600}
       )},
-      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲20HP增加一层暴力，给最近敌人上"邪教目标"',
+      { key:'献祭', prob:0.90, cond:(uu)=>anyPlayerWithoutCultTarget(uu.side), make:()=> skill('献祭',2,'orange','牺牲20HP增加一层暴力，给最近敌人上"邪教目标"',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBasic_Sacrifice(uu),
         {},
@@ -3444,7 +3462,7 @@ function buildSkillFactoriesForUnit(u){
         {},
         {moveSkill:true, moveRadius:3, castMs:600}
       )},
-      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲20HP给任意友方增加一层暴力，给最近敌人上"邪教目标"',
+      { key:'献祭', prob:0.90, cond:(uu)=>anyPlayerWithoutCultTarget(uu.side), make:()=> skill('献祭',2,'orange','牺牲20HP给任意友方增加一层暴力，给最近敌人上"邪教目标"',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyMage_Sacrifice(uu),
         {},
@@ -3472,7 +3490,7 @@ function buildSkillFactoriesForUnit(u){
         {},
         {moveSkill:true, moveRadius:5, castMs:600}
       )},
-      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲10HP给自己增加一层灵活，给最近敌人上"邪教目标"',
+      { key:'献祭', prob:0.90, cond:(uu)=>anyPlayerWithoutCultTarget(uu.side), make:()=> skill('献祭',2,'orange','牺牲10HP给自己增加一层灵活，给最近敌人上"邪教目标"',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyAssassin_Sacrifice(uu),
         {},
@@ -3500,7 +3518,7 @@ function buildSkillFactoriesForUnit(u){
         {aoe:true},
         {castMs:1100}
       )},
-      { key:'献祭', prob:0.25, cond:()=>true, make:()=> skill('献祭',2,'orange','牺牲10HP给自己增加一层暴力，给最近敌人上"邪教目标"',
+      { key:'献祭', prob:0.90, cond:(uu)=>anyPlayerWithoutCultTarget(uu.side), make:()=> skill('献祭',2,'orange','牺牲10HP给自己增加一层暴力，给最近敌人上"邪教目标"',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyElite_Sacrifice(uu),
         {},
@@ -3534,19 +3552,19 @@ function buildSkillFactoriesForUnit(u){
         {aoe:true},
         {castMs:1000}
       )},
-      { key:'协助我们！', prob:0.40, cond:()=>true, make:()=> skill('协助我们！',3,'orange','在最近空格生成一个雏形赫雷西成员',
+      { key:'协助我们！', prob:0.90, cond:()=>true, make:()=> skill('协助我们！',3,'orange','在最近空格生成一个雏形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonBasic(uu),
         {},
         {castMs:1000}
       )},
-      { key:'辅助我们！', prob:0.40, cond:()=>true, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个法形赫雷西成员',
+      { key:'辅助我们！', prob:0.90, cond:()=>true, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个法形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonMage(uu),
         {},
         {castMs:1000}
       )},
-      { key:'暗杀令', prob:0.40, cond:()=>true, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
+      { key:'暗杀令', prob:0.90, cond:()=>true, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonAssassin(uu),
         {},
@@ -3585,7 +3603,7 @@ function buildSkillFactoriesForUnit(u){
 }
 function drawOneSkill(u){
   const fset = buildSkillFactoriesForUnit(u);
-  const viable = fset.filter(f=>f.cond());
+  const viable = fset.filter(f=>f.cond(u));
   if(viable.length===0) return null;
   for(let i=0;i<30;i++){ const f=viable[Math.floor(Math.random()*viable.length)]; if(Math.random()<f.prob) return f.make(); }
   viable.sort((a,b)=> b.prob-a.prob);
@@ -5103,6 +5121,11 @@ function destroyWall(wallId){
   // Spawn next wave
   spawnNextWave(wallId);
   renderAll();
+  
+  // Reset camera to focus on newly unlocked area
+  setTimeout(() => {
+    cameraReset({immediate: false});
+  }, 500);
 }
 
 function spawnNextWave(wallId){
