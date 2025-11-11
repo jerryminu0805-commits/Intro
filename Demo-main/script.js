@@ -2391,7 +2391,7 @@ function officerCollectTargets(cells){
 // Helper function: apply bleed stacks
 function applyBleed(target, layers=1){
   if(!target || target.hp<=0) return 0;
-  const stacks = addStatusStacks(target,'bleed', layers,{label:'流血', type:'debuff'});
+  const stacks = addStatusStacks(target,'bleed', layers,{label:'流血', type:'debuff'}) || 0;
   appendLog(`${target.name} 流血层数 -> ${stacks}`);
   return stacks;
 }
@@ -2639,6 +2639,11 @@ async function heresyBasic_Revenge(u, target){
       applyBleed(target, 1);
       if(i < 3) await stageMark([{r:target.r,c:target.c}]);
     }
+  }
+  
+  // Reset camera after skill completes to prevent stuck camera
+  if(!enemyActionCameraLock){
+    cameraReset({immediate: false});
   }
   
   unitActed(u);
@@ -4039,7 +4044,7 @@ function summarizeNegatives(u){
   if(u._staggerStacks && (u.stunThreshold||1)>1) parts.push(`叠层${u._staggerStacks}/${u.stunThreshold}`);
   if(u.status.stunned>0) parts.push(`眩晕x${u.status.stunned}`);
   if(u.status.paralyzed>0) parts.push(`恐惧x${u.status.paralyzed}`);
-  if(u.status.bleed>0) parts.push(`流血x${u.status.bleed}`);
+  if((u.status.bleed || 0)>0) parts.push(`流血x${u.status.bleed || 0}`);
   if(u.status.recoverStacks>0) parts.push(`恢复x${u.status.recoverStacks}`);
   if(u.status.jixueStacks>0) parts.push(`鸡血x${u.status.jixueStacks}`);
   if(u.status.dependStacks>0) parts.push(`依赖x${u.status.dependStacks}`);
