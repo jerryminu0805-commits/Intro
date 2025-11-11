@@ -3564,7 +3564,7 @@ function buildSkillFactoriesForUnit(u){
         {},
         {castMs:1000}
       )},
-      { key:'暗杀令', prob:0.90, cond:()=>true, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
+      { key:'暗杀令', prob:0.40, cond:()=>true, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonAssassin(uu),
         {},
@@ -4640,6 +4640,16 @@ function buildSkillCandidates(en){
   for(const sk of skillset){
     if(sk.cost>enemySteps) continue;
     try{
+      // 暗杀令 优先级（高优先级召唤技能）
+      const isSummonSkill = ['协助我们！', '辅助我们！', '暗杀令'].includes(sk.name);
+      const isAssassinationOrder = sk.name === '暗杀令';
+      if(isSummonSkill){
+        // 暗杀令 gets higher priority score (20), other summons get lower (12)
+        const summonScore = isAssassinationOrder ? 20 : 12;
+        candidates.push({sk, dir:en.facing, score: summonScore});
+        continue;
+      }
+      
       // 自我增益先（锁链缠绕/堡垒/反伤）
       const selfCells = sk.rangeFn(en, en.facing, null) || [];
       const isSelfOnly = selfCells.length>0 && selfCells.every(c=>c.r===en.r && c.c===en.c);
