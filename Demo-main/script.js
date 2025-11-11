@@ -5038,6 +5038,11 @@ function isCellBehindIntactWall(r, c){
   // Starting area (22,1) to (26,18) is ALWAYS accessible (not locked)
   // This is the initial playable area at game start
   
+  // First, check if cell is in the starting area - these cells are never locked
+  if(r >= 22 && r <= 26 && c >= 1 && c <= 18){
+    return false; // Starting area is always accessible
+  }
+  
   // Area unlocked by wall1 destruction: (21,1) to (13,13) 
   // Interpretation: rows 13-21, columns 1-13
   if(r >= 13 && r <= 21 && c >= 1 && c <= 13){
