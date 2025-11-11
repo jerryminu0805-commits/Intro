@@ -3963,6 +3963,7 @@ function summarizeNegatives(u){
   if(u.status.agileStacks>0) parts.push(`灵活x${u.status.agileStacks}`);
   if(u.status.mockeryStacks>0) parts.push(`戏谑x${u.status.mockeryStacks}`);
   if(u.status.violenceStacks>0) parts.push(`暴力x${u.status.violenceStacks}`);
+  if(u.status.cultTarget>0) parts.push(`邪教目标x${u.status.cultTarget}`);
   if(u._spBroken) parts.push(`SP崩溃`);
   if(u._spCrashVuln) parts.push('SP崩溃易伤');
   if(u._stanceType && u._stanceTurns>0){
@@ -4030,10 +4031,10 @@ function handleSkillPreviewCell(u, sk, aimCell){
   if(interactionLocked || !u || u.hp<=0) return;
   clearHighlights();
   const aimDir = resolveAimDirForSkill(u, sk, aimCell);
-  const cells = sk.rangeFn(u, aimDir, aimCell) || [];
+  const cells = (sk.rangeFn(u, aimDir, aimCell) || []).filter(c => !isCellBehindIntactWall(c.r, c.c));
   for(const c of cells) markCell(c.r,c.c,'skill');
   const inPreview = rangeIncludeCell(cells, aimCell);
-  if(inPreview) markCell(aimCell.r, aimCell.c, 'target');
+  if(inPreview && !isCellBehindIntactWall(aimCell.r, aimCell.c)) markCell(aimCell.r, aimCell.c, 'target');
 }
 function consumeCardFromHand(u, sk){ if(!u || !u.skillPool) return; const idx=u.skillPool.indexOf(sk); if(idx>=0) u.skillPool.splice(idx,1); }
 function discardSkill(u, sk){
@@ -4231,7 +4232,7 @@ function showSelected(u){
 
   clearHighlights();
   if(u.side===currentSide && !u.status.stunned && u.side==='player' && canUnitMove(u)){
-    const moves=range_move_radius(u,1).filter(p=>!getUnitAt(p.r,p.c));
+    const moves=range_move_radius(u,1).filter(p=>!getUnitAt(p.r,p.c) && !isCellBehindIntactWall(p.r,p.c));
     for(const m of moves){ const key=`${m.r},${m.c}`; highlighted.add(key); markCell(m.r,m.c,'move'); }
   }
 }
@@ -4587,7 +4588,7 @@ function buildSkillCandidates(en){
       }
 
       const dirs = Object.keys(DIRS);
-      const isAdjSkill = ['血肉之刃','怨念之爪','沙包大的拳头','短匕轻挥','捅','连续挥刀'].includes(sk.name);
+      const isAdjSkill = ['血肉之刃','怨念之爪','沙包大的拳头','短匕轻挥','捅','连续挥刀','干扰者死','割喉'].includes(sk.name);
       if(isAdjSkill){
         const adj = range_adjacent(en);
         for(const c of adj){
@@ -4942,26 +4943,52 @@ function initDestructibleWalls(){
     destructibleWalls.wall3.cells.push({r, c: 13});
   }
   
-  // Blood fog zone 1 - behind wall 1
-  for(let r = 13; r <= 20; r++){
+  // Blood fog zone 1 - behind wall 1 (bottom left area accessible after wall 1 destroyed)
+  // This is the first player-accessible area after destroying wall 1
+  for(let r = 22; r <= 26; r++){
     for(let c = 1; c <= 5; c++){
-      if(clampCell(r, c)) bloodFogZones.zone1.cells.push({r, c});
+      if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
+        bloodFogZones.zone1.cells.push({r, c});
+      }
     }
   }
   
-  // Blood fog zone 2 - behind wall 2
+  // Blood fog zone 2 - behind wall 2 (top right area accessible after wall 2 destroyed)
+  // This is the second player-accessible area after destroying wall 2
   for(let r = 1; r <= 12; r++){
     for(let c = 14; c <= 18; c++){
-      if(clampCell(r, c)) bloodFogZones.zone2.cells.push({r, c});
+      if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
+        bloodFogZones.zone2.cells.push({r, c});
+      }
     }
   }
   
-  // Blood fog zone 3 - behind wall 3  
+  // Blood fog zone 3 - behind wall 3 (top left area accessible after wall 3 destroyed)
+  // This is the third player-accessible area after destroying wall 3
   for(let r = 1; r <= 7; r++){
     for(let c = 1; c <= 12; c++){
-      if(clampCell(r, c)) bloodFogZones.zone3.cells.push({r, c});
+      if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
+        bloodFogZones.zone3.cells.push({r, c});
+      }
     }
   }
+}
+
+function isCellBehindIntactWall(r, c){
+  // Check if cell is in an area that should only be accessible after a wall is destroyed
+  // Blood fog zone 1 area (behind wall 1 at r21, c1-5)
+  if(r >= 22 && r <= 26 && c >= 1 && c <= 5){
+    return !destructibleWalls.wall1.destroyed;
+  }
+  // Blood fog zone 2 area (behind wall 2 at r13-17, c13)
+  if(r >= 1 && r <= 12 && c >= 14 && c <= 18){
+    return !destructibleWalls.wall2.destroyed;
+  }
+  // Blood fog zone 3 area (behind wall 3 at r1-7, c13)
+  if(r >= 1 && r <= 7 && c >= 1 && c <= 12){
+    return !destructibleWalls.wall3.destroyed;
+  }
+  return false;
 }
 
 function isWallCell(r, c){
