@@ -5121,6 +5121,11 @@ function destroyWall(wallId){
   // Spawn next wave
   spawnNextWave(wallId);
   renderAll();
+  
+  // Reset camera to focus on newly unlocked area
+  setTimeout(() => {
+    cameraReset({immediate: false});
+  }, 500);
 }
 
 function spawnNextWave(wallId){
