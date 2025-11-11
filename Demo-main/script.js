@@ -38,6 +38,12 @@ let roundsPassed = 0;
 let playerBonusStepsNextTurn = 0;
 function computeBaseSteps(){ return Math.min(BASE_START_STEPS + roundsPassed, MAX_STEPS); }
 
+// Cooldown tracking for summoning skills (每三回合才可以用)
+let lastUsedRound_SummonBasic = -999;  // 协助我们！
+let lastUsedRound_SummonMage = -999;   // 辅助我们！
+let lastUsedRound_SummonAssassin = -999; // 暗杀令
+const SUMMON_SKILL_COOLDOWN = 3; // 三回合冷却
+
 let playerSteps = computeBaseSteps();
 let enemySteps = computeBaseSteps();
 let currentSide = 'player';
@@ -3204,6 +3210,9 @@ async function heresyBoss_SummonBasic(u){
   ensureStartHand(units[newId]);
   renderAll();
   
+  // 更新技能使用回合
+  lastUsedRound_SummonBasic = roundsPassed;
+  
   unitActed(u);
 }
 
@@ -3224,6 +3233,9 @@ async function heresyBoss_SummonMage(u){
   appendLog(`${u.name} 召唤了法形赫雷西成员 at (${pos.r},${pos.c})`);
   ensureStartHand(units[newId]);
   renderAll();
+  
+  // 更新技能使用回合
+  lastUsedRound_SummonMage = roundsPassed;
   
   unitActed(u);
 }
@@ -3246,6 +3258,9 @@ async function heresyBoss_SummonAssassin(u){
   appendLog(`${u.name} 召唤了半血刺形赫雷西成员 at (${pos.r},${pos.c})`);
   ensureStartHand(units[newId]);
   renderAll();
+  
+  // 更新技能使用回合
+  lastUsedRound_SummonAssassin = roundsPassed;
   
   unitActed(u);
 }
@@ -3552,19 +3567,19 @@ function buildSkillFactoriesForUnit(u){
         {aoe:true},
         {castMs:1000}
       )},
-      { key:'协助我们！', prob:0.90, cond:()=>true, make:()=> skill('协助我们！',3,'orange','在最近空格生成一个雏形赫雷西成员',
+      { key:'协助我们！', prob:0.90, cond:()=> (roundsPassed - lastUsedRound_SummonBasic) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('协助我们！',3,'orange','在最近空格生成一个雏形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonBasic(uu),
         {},
         {castMs:1000}
       )},
-      { key:'辅助我们！', prob:0.90, cond:()=>true, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个法形赫雷西成员',
+      { key:'辅助我们！', prob:0.90, cond:()=> (roundsPassed - lastUsedRound_SummonMage) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个法形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonMage(uu),
         {},
         {castMs:1000}
       )},
-      { key:'暗杀令', prob:0.40, cond:()=>true, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
+      { key:'暗杀令', prob:0.40, cond:()=> (roundsPassed - lastUsedRound_SummonAssassin) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('暗杀令',2,'orange','在最近空格生成一个半血刺形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonAssassin(uu),
         {},
