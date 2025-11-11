@@ -3205,8 +3205,9 @@ async function heresyBoss_SummonBasic(u){
   };
   units[newId] = createUnit(newId,'雏形赫雷西成员','enemy',25, pos.r, pos.c, 150, 70, 1.0, 0, 
     ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
+  units[newId].hp = 75; // Half HP
   
-  appendLog(`${u.name} 召唤了雏形赫雷西成员 at (${pos.r},${pos.c})`);
+  appendLog(`${u.name} 召唤了半血雏形赫雷西成员 at (${pos.r},${pos.c})`);
   ensureStartHand(units[newId]);
   renderAll();
   
@@ -3229,8 +3230,9 @@ async function heresyBoss_SummonMage(u){
   };
   units[newId] = createUnit(newId,'法形赫雷西成员','enemy',25, pos.r, pos.c, 100, 90, 1.0, 0,
     ['loyalFaith','gift','enhancedBody','godsCommand'], heresyMageConfig);
+  units[newId].hp = 50; // Half HP
   
-  appendLog(`${u.name} 召唤了法形赫雷西成员 at (${pos.r},${pos.c})`);
+  appendLog(`${u.name} 召唤了半血法形赫雷西成员 at (${pos.r},${pos.c})`);
   ensureStartHand(units[newId]);
   renderAll();
   
@@ -3567,13 +3569,13 @@ function buildSkillFactoriesForUnit(u){
         {aoe:true},
         {castMs:1000}
       )},
-      { key:'协助我们！', prob:0.90, cond:()=> (roundsPassed - lastUsedRound_SummonBasic) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('协助我们！',3,'orange','在最近空格生成一个雏形赫雷西成员',
+      { key:'协助我们！', prob:0.90, cond:()=> (roundsPassed - lastUsedRound_SummonBasic) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('协助我们！',2,'orange','在最近空格生成一个半血雏形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonBasic(uu),
         {},
         {castMs:1000}
       )},
-      { key:'辅助我们！', prob:0.90, cond:()=> (roundsPassed - lastUsedRound_SummonMage) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个法形赫雷西成员',
+      { key:'辅助我们！', prob:0.90, cond:()=> (roundsPassed - lastUsedRound_SummonMage) >= SUMMON_SKILL_COOLDOWN, make:()=> skill('辅助我们！',3,'orange','在最近空格生成一个半血法形赫雷西成员',
         (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
         (uu)=> heresyBoss_SummonMage(uu),
         {},
@@ -3808,6 +3810,10 @@ function buildGrid(){
       if(currentWave >= 3 && recoveryTiles.tile2.r === r && recoveryTiles.tile2.c === c && !recoveryTiles.tile2.used){
         cell.classList.add('recovery-tile');
         cell.title = '恢复格子：恢复所有HP和SP，获得鸡血Buff';
+      }
+      if(currentWave >= 4 && recoveryTiles.tile3.r === r && recoveryTiles.tile3.c === c && !recoveryTiles.tile3.used){
+        cell.classList.add('recovery-tile');
+        cell.title = '恢复格子：恢复所有HP和SP，获得鸡血Buff（每10回合重置）';
       }
       
       // Check for blood fog zones
@@ -4492,6 +4498,9 @@ function finishEnemyTurn(){
   // Update blood fog zones
   updateBloodFogZones();
   applyBloodFogDamage();
+  
+  // Check for recovery tile 3 respawn
+  checkRecoveryTile3Respawn();
 
   updateStepsUI();
   setTimeout(()=>{
@@ -5018,7 +5027,8 @@ const bloodFogZones = {
 // Recovery tiles
 const recoveryTiles = {
   tile1: { r: 18, c: 3, used: false },  // (3,18) - after wall 1
-  tile2: { r: 9, c: 16, used: false }   // (16,9) - after wall 2
+  tile2: { r: 9, c: 16, used: false },  // (16,9) - after wall 2
+  tile3: { r: 12, c: 4, used: false, lastRespawnRound: -999 }  // (4,12) - after wall 3, respawns every 10 rounds
 };
 
 // Wave tracking
@@ -5210,6 +5220,10 @@ function spawnNextWave(wallId){
                   units['heresy_mage_4'] = createUnit('heresy_mage_4','法形赫雷西成员','enemy',25, 2, 4, 100, 90, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyMageConfig);
                   units['heresy_boss_b'] = createUnit('heresy_boss_b','组装型进阶赫雷西成员（赫雷西成员B）','enemy',25, 4, 2, 250, 90, 1.0, 0, ['loyalFaith','sootheSpirit','transmitCommand'], heresyBossConfig);
                   
+                  // Reveal recovery tile 3
+                  recoveryTiles.tile3.used = false;
+                  recoveryTiles.tile3.lastRespawnRound = roundsPassed;
+                  
                   currentWave = 4;
                   renderAll();
                 }, 1000);
@@ -5277,6 +5291,18 @@ function applyBloodFogDamage(){
   }
 }
 
+function checkRecoveryTile3Respawn(){
+  // Check if tile3 should respawn (every 10 rounds after being used)
+  if(currentWave >= 4 && recoveryTiles.tile3.used){
+    const roundsSinceLastRespawn = roundsPassed - recoveryTiles.tile3.lastRespawnRound;
+    if(roundsSinceLastRespawn >= 10){
+      recoveryTiles.tile3.used = false;
+      recoveryTiles.tile3.lastRespawnRound = roundsPassed;
+      appendLog('恢复格子3已重新生成！位置：(4, 12)');
+    }
+  }
+}
+
 function checkRecoveryTile(u){
   if(!u || u.side !== 'player') return;
   
@@ -5284,6 +5310,11 @@ function checkRecoveryTile(u){
     const tile = recoveryTiles[tileKey];
     if(!tile.used && u.r === tile.r && u.c === tile.c){
       tile.used = true;
+      
+      // For tile3, record when it was used for respawn tracking
+      if(tileKey === 'tile3'){
+        tile.lastRespawnRound = roundsPassed;
+      }
       
       // Full heal
       u.hp = u.maxHp;
