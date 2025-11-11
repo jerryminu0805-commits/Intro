@@ -147,6 +147,9 @@ function clampCell(r,c){
   const wall = isWallCell(r, c);
   if(wall && !wall.destroyed) return false;
   
+  // Check if cell is in a locked area (behind an intact wall)
+  if(isCellBehindIntactWall(r, c)) return false;
+  
   return r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c); 
 }
 
@@ -1621,9 +1624,51 @@ function setCameraTarget({x=cameraState.targetX, y=cameraState.targetY, scale=ca
     startCameraLoop();
   }
 }
+function calculateUnlockedAreaCenter(){
+  // Calculate the center point of all unlocked (accessible) areas
+  let minR = ROWS, maxR = 1, minC = COLS, maxC = 1;
+  let cellCount = 0;
+  
+  for(let r = 1; r <= ROWS; r++){
+    for(let c = 1; c <= COLS; c++){
+      // Skip void cells, cover cells, and locked areas
+      if(isVoidCell(r, c) || isCoverCell(r, c)) continue;
+      if(isCellBehindIntactWall(r, c)) continue;
+      
+      // Check if cell is a wall (but include destroyed walls)
+      const wall = isWallCell(r, c);
+      if(wall && !wall.destroyed) continue;
+      
+      // This cell is accessible
+      minR = Math.min(minR, r);
+      maxR = Math.max(maxR, r);
+      minC = Math.min(minC, c);
+      maxC = Math.max(maxC, c);
+      cellCount++;
+    }
+  }
+  
+  // If no cells found, return board center
+  if(cellCount === 0){
+    return {r: Math.floor(ROWS / 2), c: Math.floor(COLS / 2)};
+  }
+  
+  // Return center of bounding box
+  return {
+    r: Math.floor((minR + maxR) / 2),
+    c: Math.floor((minC + maxC) / 2)
+  };
+}
 function cameraReset({immediate=false}={}){
   if(cameraResetTimer){ clearTimeout(cameraResetTimer); cameraResetTimer=null; }
-  setCameraTarget({x:0, y:0, scale:cameraState.baseScale, immediate});
+  
+  // Focus on the center of unlocked areas instead of board center
+  const center = calculateUnlockedAreaCenter();
+  const offset = cellCenterOffset(center.r, center.c);
+  const tx = -offset.x * cameraState.baseScale;
+  const ty = -offset.y * cameraState.baseScale;
+  
+  setCameraTarget({x:tx, y:ty, scale:cameraState.baseScale, immediate});
 }
 function cellCenterOffset(r,c){
   const centerX = BOARD_BORDER + BOARD_PADDING + (c - 1) * (CELL_SIZE + GRID_GAP) + CELL_SIZE / 2;
@@ -4636,6 +4681,20 @@ async function execEnemySkillCandidate(en, cand){
 
   clearHighlights();
   cells.forEach(c=> markCell(c.r,c.c,'skill'));
+  
+  // Zoom camera to show attack range when enemy attacks
+  if(cells.length > 0 && isUnitVisible(en)){
+    // Calculate center of attack area
+    const avgR = cells.reduce((sum, c) => sum + c.r, 0) / cells.length;
+    const avgC = cells.reduce((sum, c) => sum + c.c, 0) / cells.length;
+    const centerR = Math.round(avgR);
+    const centerC = Math.round(avgC);
+    
+    // Zoom in slightly to show attack range
+    const zoomScale = Math.min(cameraState.baseScale * 1.35, cameraState.maxScale);
+    cameraFocusOnCell(centerR, centerC, {scale: zoomScale, hold: 0, immediate: false});
+  }
+  
   await aiAwait(ENEMY_WINDUP_MS);
   clearHighlights();
 
@@ -4943,30 +5002,30 @@ function initDestructibleWalls(){
     destructibleWalls.wall3.cells.push({r, c: 13});
   }
   
-  // Blood fog zone 1 - behind wall 1 (area above wall 1, accessible after wall 1 destroyed)
-  // Wall 1 is at r21, c1-5. Zone 1 is the area above it in same columns
-  for(let r = 13; r <= 20; r++){
-    for(let c = 1; c <= 5; c++){
+  // Blood fog zone 1 - (22,1) to (26,18)
+  // Rows 22-26, columns 1-18 (excluding void cells)
+  for(let r = 22; r <= 26; r++){
+    for(let c = 1; c <= 18; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone1.cells.push({r, c});
       }
     }
   }
   
-  // Blood fog zone 2 - behind wall 2 (area right of wall 2, accessible after wall 2 destroyed)
-  // Wall 2 is at c13, r13-17. Zone 2 is the area to the right of it in same rows
-  for(let r = 13; r <= 17; r++){
-    for(let c = 14; c <= 18; c++){
+  // Blood fog zone 2 - (21,1) to (13,13)
+  // Rows 13-21, columns 1-13 (excluding void cells)
+  for(let r = 13; r <= 21; r++){
+    for(let c = 1; c <= 13; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone2.cells.push({r, c});
       }
     }
   }
   
-  // Blood fog zone 3 - behind wall 3 (area left of wall 3, accessible after wall 3 destroyed)
-  // Wall 3 is at c13, r1-7. Zone 3 is the area to the left of it in same rows
-  for(let r = 1; r <= 7; r++){
-    for(let c = 1; c <= 12; c++){
+  // Blood fog zone 3 - (17,18) to (1,14)
+  // Rows 1-17, columns 14-18 (excluding void cells)
+  for(let r = 1; r <= 17; r++){
+    for(let c = 14; c <= 18; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone3.cells.push({r, c});
       }
@@ -4976,16 +5035,16 @@ function initDestructibleWalls(){
 
 function isCellBehindIntactWall(r, c){
   // Check if cell is in an area that should only be accessible after a wall is destroyed
-  // Blood fog zone 1 area (above wall 1 at r21, c1-5)
-  if(r >= 13 && r <= 20 && c >= 1 && c <= 5){
+  // Blood fog zone 1 area (22,1) to (26,18)
+  if(r >= 22 && r <= 26 && c >= 1 && c <= 18){
     return !destructibleWalls.wall1.destroyed;
   }
-  // Blood fog zone 2 area (right of wall 2 at c13, r13-17)
-  if(r >= 13 && r <= 17 && c >= 14 && c <= 18){
+  // Blood fog zone 2 area (21,1) to (13,13)
+  if(r >= 13 && r <= 21 && c >= 1 && c <= 13){
     return !destructibleWalls.wall2.destroyed;
   }
-  // Blood fog zone 3 area (left of wall 3 at c13, r1-7)
-  if(r >= 1 && r <= 7 && c >= 1 && c <= 12){
+  // Blood fog zone 3 area (17,18) to (1,14)
+  if(r >= 1 && r <= 17 && c >= 14 && c <= 18){
     return !destructibleWalls.wall3.destroyed;
   }
   return false;
