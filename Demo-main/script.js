@@ -5002,30 +5002,30 @@ function initDestructibleWalls(){
     destructibleWalls.wall3.cells.push({r, c: 13});
   }
   
-  // Blood fog zone 1 - (22,1) to (26,18)
-  // Rows 22-26, columns 1-18 (excluding void cells)
-  for(let r = 22; r <= 26; r++){
-    for(let c = 1; c <= 18; c++){
+  // Blood fog zone 1 - (21,1) to (13,13)
+  // Rows 13-21, columns 1-13 (excluding void cells)
+  for(let r = 13; r <= 21; r++){
+    for(let c = 1; c <= 13; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone1.cells.push({r, c});
       }
     }
   }
   
-  // Blood fog zone 2 - (21,1) to (13,13)
-  // Rows 13-21, columns 1-13 (excluding void cells)
-  for(let r = 13; r <= 21; r++){
-    for(let c = 1; c <= 13; c++){
+  // Blood fog zone 2 - (17,18) to (1,13)
+  // Rows 1-17, columns 13-18 (excluding void cells)
+  for(let r = 1; r <= 17; r++){
+    for(let c = 13; c <= 18; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone2.cells.push({r, c});
       }
     }
   }
   
-  // Blood fog zone 3 - (17,18) to (1,14)
-  // Rows 1-17, columns 14-18 (excluding void cells)
-  for(let r = 1; r <= 17; r++){
-    for(let c = 14; c <= 18; c++){
+  // Blood fog zone 3 - (7,12) to (1,1)
+  // Rows 1-7, columns 1-12 (excluding void cells)
+  for(let r = 1; r <= 7; r++){
+    for(let c = 1; c <= 12; c++){
       if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c)){
         bloodFogZones.zone3.cells.push({r, c});
       }
@@ -5035,17 +5035,16 @@ function initDestructibleWalls(){
 
 function isCellBehindIntactWall(r, c){
   // Check if cell is in an area that should only be accessible after a wall is destroyed
-  // Blood fog zone 1 area (22,1) to (26,18) - UNLOCKED AT START
-  // This area is now accessible from the beginning
-  if(r >= 22 && r <= 26 && c >= 1 && c <= 18){
-    return false; // Area unlocked at game start
-  }
-  // Blood fog zone 2 area (21,1) to (13,13)
+  // Blood fog zone 1 area (21,1) to (13,13) - locked by wall1
   if(r >= 13 && r <= 21 && c >= 1 && c <= 13){
+    return !destructibleWalls.wall1.destroyed;
+  }
+  // Blood fog zone 2 area (17,18) to (1,13) - locked by wall2
+  if(r >= 1 && r <= 17 && c >= 13 && c <= 18){
     return !destructibleWalls.wall2.destroyed;
   }
-  // Blood fog zone 3 area (17,18) to (1,14)
-  if(r >= 1 && r <= 17 && c >= 14 && c <= 18){
+  // Blood fog zone 3 area (7,12) to (1,1) - locked by wall3
+  if(r >= 1 && r <= 7 && c >= 1 && c <= 12){
     return !destructibleWalls.wall3.destroyed;
   }
   return false;
@@ -5098,7 +5097,7 @@ function spawnNextWave(wallId){
     units['heresy_mage_2'] = createUnit('heresy_mage_2','法形赫雷西成员','enemy',25, 15, 3, 100, 90, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyMageConfig);
     units['heresy_basic_3'] = createUnit('heresy_basic_3','雏形赫雷西成员','enemy',25, 16, 10, 150, 70, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
     units['heresy_basic_4'] = createUnit('heresy_basic_4','雏形赫雷西成员','enemy',25, 14, 10, 150, 70, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
-    units['heresy_basic_5'] = createUnit('heresy_basic_5','雏形赫雷西成员','enemy',25, 25, 8, 150, 70, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
+    units['heresy_basic_5'] = createUnit('heresy_basic_5','雏形赫雷西成员','enemy',25, 15, 8, 150, 70, 1.0, 0, ['loyalFaith','gift','enhancedBody','godsCommand'], heresyBasicConfig);
     units['heresy_assassin_2'] = createUnit('heresy_assassin_2','刺形赫雷西成员','enemy',25, 15, 12, 50, 100, 1.0, 0, ['loyalFaith','hiddenGift','triangleForm','godsCommand'], heresyAssassinConfig);
     
     // Reveal recovery tile 1
