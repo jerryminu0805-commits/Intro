@@ -64,6 +64,9 @@ let enemyActionCameraLock = false;
 let cameraLoopHandle = null;
 let cameraDragState = null;
 let cameraInputsRegistered = false;
+let positionSelectionActive = false;
+let positionsToPlace = [];
+let currentPlacingIndex = 0;
 
 const cameraState = {
   x: 0,
@@ -221,6 +224,8 @@ const units = {};
 // Note: Using 1-indexed coordinates from problem statement, converting to 0-indexed for internal use
 // Problem statement uses (X,Y) where X is horizontal (col), Y is vertical (row) from top-left (1,1)
 // Internal: r=row from top (1-indexed), c=col from left (1-indexed)
+// Initial positions will be set during position selection phase
+// Starting range: (22,1) to (26,18) - rows 22-26, columns 1-18
 units['dario'] = createUnit('dario','Dario','player',25, 23, 16, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
 units['adora'] = createUnit('adora','Adora','player',25, 24, 16, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
 units['karma'] = createUnit('karma','Karma','player',25, 25, 16, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
@@ -888,6 +893,8 @@ function injectFXStyles(){
   .cell.highlight-tele { background: rgba(24,144,255,0.28) !important; }
   .cell.highlight-imp  { background: rgba(245,34,45,0.30) !important; }
   .cell.highlight-stage{ background: rgba(250,173,20,0.34) !important; }
+  .cell.highlight-placement { background: rgba(82,196,26,0.25) !important; box-shadow: inset 0 0 0 2px rgba(82,196,26,0.5); cursor: pointer; }
+  .cell.highlight-placement:hover { background: rgba(82,196,26,0.35) !important; }
 
   /* 技能卡简易样式（含 pink/white/blue） */
   .skillCard { border-left: 6px solid #91d5ff; background: rgba(255,255,255,0.06); padding: 8px; border-radius: 8px; margin: 6px 0; cursor: pointer; }
@@ -4281,11 +4288,19 @@ function showSelected(u){
     for(const m of moves){ const key=`${m.r},${m.c}`; highlighted.add(key); markCell(m.r,m.c,'move'); }
   }
 }
-function clearHighlights(){ highlighted.clear(); document.querySelectorAll('.cell').forEach(cell=>cell.classList.remove('highlight-move','highlight-skill','highlight-skill-target','pulse','highlight-tele','highlight-imp','highlight-stage')); }
+function clearHighlights(){ highlighted.clear(); document.querySelectorAll('.cell').forEach(cell=>cell.classList.remove('highlight-move','highlight-skill','highlight-skill-target','pulse','highlight-tele','highlight-imp','highlight-stage','highlight-placement')); }
 function markCell(r,c,kind){
   const cell=getCellEl(r,c);
   if(cell && !cell.classList.contains('void')){
-    cell.classList.add(kind==='move'?'highlight-move':(kind==='target'?'highlight-skill-target':'highlight-skill'));
+    if(kind === 'move'){
+      cell.classList.add('highlight-move');
+    } else if(kind === 'target'){
+      cell.classList.add('highlight-skill-target');
+    } else if(kind === 'placement'){
+      cell.classList.add('highlight-placement');
+    } else {
+      cell.classList.add('highlight-skill');
+    }
   }
 }
 
@@ -5265,6 +5280,118 @@ function stopMusic(){
   }
 }
 
+// —— 开局位置选择系统 ——
+function startPositionSelection(){
+  positionSelectionActive = true;
+  interactionLocked = true;
+  
+  // Store player units to place
+  positionsToPlace = [
+    {id: 'dario', name: 'Dario', unit: units['dario']},
+    {id: 'adora', name: 'Adora', unit: units['adora']},
+    {id: 'karma', name: 'Karma', unit: units['karma']}
+  ];
+  currentPlacingIndex = 0;
+  
+  // Temporarily move units off-map during selection
+  for(const p of positionsToPlace){
+    p.unit.r = -1;
+    p.unit.c = -1;
+  }
+  
+  appendLog('=== 开局位置选择 ===');
+  appendLog(`请为 ${positionsToPlace[currentPlacingIndex].name} 选择起始位置（范围：行22-26，列1-18）`);
+  
+  // Highlight valid placement area
+  clearHighlights();
+  for(let r = 22; r <= 26; r++){
+    for(let c = 1; c <= 18; c++){
+      if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c) && !getUnitAt(r,c)){
+        markCell(r, c, 'placement');
+      }
+    }
+  }
+  
+  renderAll();
+  
+  // Add click handler for position selection
+  battleAreaEl.addEventListener('click', handlePositionSelectionClick);
+}
+
+function handlePositionSelectionClick(event){
+  if(!positionSelectionActive) return;
+  
+  const cell = event.target.closest('.cell');
+  if(!cell) return;
+  
+  const r = parseInt(cell.dataset.r);
+  const c = parseInt(cell.dataset.c);
+  
+  // Check if this is a valid placement cell
+  if(r < 22 || r > 26 || c < 1 || c > 18) {
+    appendLog(`位置无效：请在行22-26，列1-18范围内选择`);
+    return;
+  }
+  
+  if(isVoidCell(r, c) || isCoverCell(r, c) || getUnitAt(r, c)){
+    appendLog(`位置被占用或不可用`);
+    return;
+  }
+  
+  // Place current unit
+  const current = positionsToPlace[currentPlacingIndex];
+  current.unit.r = r;
+  current.unit.c = c;
+  
+  appendLog(`${current.name} 已放置在 (${r}, ${c})`);
+  
+  currentPlacingIndex++;
+  
+  // Check if all units are placed
+  if(currentPlacingIndex >= positionsToPlace.length){
+    finishPositionSelection();
+  } else {
+    // Highlight available positions for next unit
+    clearHighlights();
+    for(let r = 22; r <= 26; r++){
+      for(let c = 1; c <= 18; c++){
+        if(r>=1 && r<=ROWS && c>=1 && c<=COLS && !isVoidCell(r,c) && !isCoverCell(r,c) && !getUnitAt(r,c)){
+          markCell(r, c, 'placement');
+        }
+      }
+    }
+    
+    appendLog(`请为 ${positionsToPlace[currentPlacingIndex].name} 选择起始位置`);
+    renderAll();
+  }
+}
+
+function finishPositionSelection(){
+  positionSelectionActive = false;
+  interactionLocked = false;
+  
+  clearHighlights();
+  battleAreaEl.removeEventListener('click', handlePositionSelectionClick);
+  
+  appendLog('=== 所有单位已部署完毕 ===');
+  appendLog('血楼计划：地图 18x26，赫雷西成员登场。');
+  appendLog('赫雷西成员具有多种被动与技能，包括"邪教目标"机制。');
+  appendLog('击败所有敌人以摧毁墙体并推进战斗。');
+  
+  // Initialize player units' skills
+  for(const id in units){
+    const u = units[id];
+    if(u.side === 'player' && u.hp > 0 && !u.dealtStart){
+      ensureStartHand(u);
+    }
+  }
+  
+  renderAll();
+  
+  // Start intro cinematic after a delay
+  setTimeout(()=> playIntroCinematic(), 300);
+}
+
 // —— 初始化 —— 
 document.addEventListener('DOMContentLoaded', ()=>{
   battleAreaEl = document.getElementById('battleArea');
@@ -5294,12 +5421,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   addCoverRect(1,9,7,9);
   injectFXStyles();
 
-  // 起手手牌
-  for(const id in units){ const u=units[id]; if(u.hp>0) ensureStartHand(u); }
+  // Don't deal starting hands or initialize invisibility yet - wait for position selection
   
-  // 初始化隐身（hiddenGift被动）
-  for(const id in units){ const u=units[id]; if(u.hp>0) initializeInvisibility(u); }
-
   playerSteps = computeBaseSteps();
   enemySteps = computeBaseSteps();
 
@@ -5314,10 +5437,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     requestAnimationFrame(()=> refreshLargeOverlays());
   }
   window.addEventListener('load', ()=> refreshLargeOverlays());
-
-  appendLog('血楼计划：地图 18x26，赫雷西成员登场。');
-  appendLog('赫雷西成员具有多种被动与技能，包括"邪教目标"机制。');
-  appendLog('击败所有敌人以摧毁墙体并推进战斗。');
 
   const endTurnBtn=document.getElementById('endTurnBtn');
   if(endTurnBtn) endTurnBtn.addEventListener('click', ()=>{ if(interactionLocked) return; endTurn(); });
@@ -5393,8 +5512,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
   
   // Initialize Blood Tower Plan systems
   initDestructibleWalls();
+  
+  // Initialize enemy units' skills and invisibility
+  for(const id in units){
+    const u = units[id];
+    if(u.side === 'enemy' && u.hp > 0){
+      ensureStartHand(u);
+      initializeInvisibility(u);
+    }
+  }
+  
   playMusic('Tower.mp3');
   appendLog('=== 血楼计划：第一波战斗开始 ===');
   
-  setTimeout(()=> playIntroCinematic(), 80);
+  // Start with position selection instead of intro cinematic
+  setTimeout(()=> startPositionSelection(), 80);
 });
