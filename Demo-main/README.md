@@ -54,10 +54,13 @@ This is a turn-based tactical RPG battle system featuring the "Blood Tower Plan"
 - Passives: 忠臣的信仰, 血污蔓延 (Blood Stain), 接受神的指示
 - Special: Requires 2 stagger stacks to stun
 
-### 组装型进阶赫雷西成员 (Boss - Member B)
+### Boss Member B
 - HP: 250 | SP: 90
 - Skills: 以神明之名 series (Blessing, Care, Freedom), Summoning skills, 清除
 - Can summon additional cult members during battle
+  - **协助我们！** (2 SP cost): Summons a Basic Heresy Member at half HP (75/150)
+  - **辅助我们！** (3 SP cost): Summons a Mage Heresy Member at half HP (50/100)
+  - **暗杀令** (2 SP cost): Summons an Assassin Heresy Member at half HP (25/50)
 - Heals nearby allies each turn
 - Special: Requires 3 stagger stacks to stun
 
@@ -76,10 +79,11 @@ This is a turn-based tactical RPG battle system featuring the "Blood Tower Plan"
 - Affect all player units in the zone
 
 ### Recovery Tiles
-- One-time use healing stations
-- Appear after destroying Walls 1 and 2
-- Restore full HP and SP
+- Healing stations that restore full HP and SP
 - Grant 鸡血 (Adrenaline) buff: next attack deals double damage
+- **Tile 1** appears after destroying Wall 1 at position (3,18) - one-time use
+- **Tile 2** appears after destroying Wall 2 at position (16,9) - one-time use
+- **Tile 3** appears after destroying Wall 3 at position (4,12) - **respawns every 10 rounds**
 
 ### 邪教目标 (Cult Target)
 - Enemies can mark players with "Cult Target"
