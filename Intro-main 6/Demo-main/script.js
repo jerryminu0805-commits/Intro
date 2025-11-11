@@ -4960,7 +4960,7 @@ function checkEndOfTurn(){
 
 // —— 血楼计划：可摧毁墙体系统 ——
 const destructibleWalls = {
-  wall1: { id: 'wall1', cells: [], state: 'intact', fragile: false, destroyed: false }, // (1,21) to (5,21)
+  wall1: { id: 'wall1', cells: [], state: 'destroyed', fragile: false, destroyed: true }, // (1,21) to (5,21) - Unlocked at start
   wall2: { id: 'wall2', cells: [], state: 'intact', fragile: false, destroyed: false }, // (13,13) to (13,17)
   wall3: { id: 'wall3', cells: [], state: 'intact', fragile: false, destroyed: false }  // (13,1) to (13,7)
 };
@@ -5318,6 +5318,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   appendLog('血楼计划：地图 18x26，赫雷西成员登场。');
   appendLog('赫雷西成员具有多种被动与技能，包括"邪教目标"机制。');
   appendLog('击败所有敌人以摧毁墙体并推进战斗。');
+  appendLog('区域（22，1）到（26，18）已解锁，可自由进入。');
 
   const endTurnBtn=document.getElementById('endTurnBtn');
   if(endTurnBtn) endTurnBtn.addEventListener('click', ()=>{ if(interactionLocked) return; endTurn(); });
