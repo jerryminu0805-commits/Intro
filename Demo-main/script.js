@@ -2309,12 +2309,31 @@ function karmaGrip(u,target){
   if(!target || target.side===u.side){ appendLog('嗜血之握 目标无效'); return; }
   cameraFocusOnCell(target.r, target.c);
   let fixed = null;
-  if(target.id==='khathia') fixed = 75;
-  if(fixed!==null){
+  let useTrueDamage = false;
+  
+  // Elite Heresy members (stunThreshold >= 2) - 100HP
+  if(target.stunThreshold && target.stunThreshold >= 3){
+    // Boss Member B or similar bosses with stunThreshold 3 - 80HP
+    if(target.id === 'heresy_boss_b'){
+      fixed = 80;
+    }
+  } else if(target.stunThreshold && target.stunThreshold === 2){
+    // Elite members - 100HP
+    fixed = 100;
+  } else if(target.id === 'khathia'){
+    // Khathia boss - 75HP
+    fixed = 75;
+  } else {
+    // Normal units - instant kill with TRUE DAMAGE
+    useTrueDamage = true;
+  }
+  
+  if(fixed !== null){
     const deal = Math.min(target.hp, fixed);
     damageUnit(target.id, deal, 0, `${u.name} 嗜血之握 重创 ${target.name}`, u.id, {ignoreToughBody:true, ignoreTuskWall:true, skillFx:'karma:嗜血之握'});
   } else {
-    damageUnit(target.id, target.hp, 0, `${u.name} 嗜血之握 处决 ${target.name}`, u.id, {ignoreToughBody:true, skillFx:'karma:嗜血之握'});
+    // Use true damage for normal units to bypass Gift passive
+    damageUnit(target.id, target.hp, 0, `${u.name} 嗜血之握 处决 ${target.name}`, u.id, {ignoreToughBody:true, trueDamage:useTrueDamage, skillFx:'karma:嗜血之握'});
   }
   unitActed(u);
 }
@@ -2628,14 +2647,19 @@ async function heresyBasic_Sacrifice(u){
 async function heresyBasic_Revenge(u, target){
   if(!target || target.hp<=0){ appendLog('讨回公道：没有目标'); unitActed(u); return; }
   
+  // Focus camera on target first
+  cameraFocusOnCell(target.r, target.c);
+  
   // Sacrifice 35 HP
   const before = u.hp;
   u.hp = Math.max(1, u.hp - 35);
   showDamageFloat(u,35,0);
   appendLog(`${u.name} 讨回公道牺牲35HP`);
+  renderAll();
+  await sleep(200);
   
+  // Telegraph and impact
   await telegraphThenImpact([{r:target.r,c:target.c}]);
-  cameraFocusOnCell(target.r, target.c);
   
   // 4 scratches
   for(let i=0; i<4; i++){
@@ -2645,6 +2669,7 @@ async function heresyBasic_Revenge(u, target){
     damageUnit(target.id,dmg,5,`${u.name} 讨回公道·第${i+1}次抓挠 命中 ${target.name}`, u.id);
     u.dmgDone += dmg;
     applyBleed(target, 1);
+    renderAll();
     if(i < 3) await stageMark([{r:target.r,c:target.c}]);
   }
   
@@ -2660,6 +2685,7 @@ async function heresyBasic_Revenge(u, target){
       damageUnit(target.id,dmg,5,`${u.name} 讨回公道·追击·第${i+1}次抓挠 命中 ${target.name}`, u.id);
       u.dmgDone += dmg;
       applyBleed(target, 1);
+      renderAll();
       if(i < 3) await stageMark([{r:target.r,c:target.c}]);
     }
   }
