@@ -1852,22 +1852,9 @@ function hideIntroDialog(){ if(introDialogEl){ introDialogEl.style.display = 'no
 async function playIntroCinematic(){
   if(introPlayed) return;
   introPlayed = true;
-  setInteractionLocked(true);
-  cameraReset({immediate:true});
-  await sleep(260);
-  const officer1 = units['officer1'];
-  if(officer1 && officer1.hp>0){
-    const zoom = clampValue(cameraState.baseScale * 1.3, cameraState.minScale, cameraState.maxScale);
-    cameraFocusOnCell(officer1.r, officer1.c, {scale: zoom, hold:0});
-    await sleep(420);
-  }
-  await showIntroLine('记住，这只是测试，不需要太认真');
-  hideIntroDialog();
-  cameraReset();
-  await sleep(520);
-  showRoundBanner('回合一', 1800);
-  await sleep(1600);
+  // Blood Tower Plan: Skip intro cinematic, directly start battle
   setInteractionLocked(false);
+  cameraReset({immediate:true});
 }
 function uniqueCells(cells){ const s=new Set(); const out=[]; for(const c of cells||[]){ const k=`${c.r},${c.c}`; if(!s.has(k)){ s.add(k); out.push(c);} } return out; }
 function addTempClassToCells(cells, cls, ms){
@@ -5231,6 +5218,8 @@ function destroyWall(wallId){
   if(wallId === 'wall3'){
     shouldCheckBloodFogRemoval = true;
     appendLog('墙体3已被摧毁！当所有友方单位离开血污区域后，地图将缩小');
+    // Stop Tower.mp3 when wall 3 is destroyed
+    stopMusic();
   }
   
   // Spawn next wave
@@ -5271,7 +5260,7 @@ function spawnNextWave(wallId){
     currentWave = 3;
   } else if(wallId === 'wall3'){
     appendLog('=== 最终Boss战开始！ ===');
-    stopMusic('Tower.mp3');
+    // Tower.mp3 already stopped in destroyWall function
     
     // Boss cutscene
     setTimeout(() => {
