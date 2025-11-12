@@ -1641,6 +1641,17 @@ function calculateUnlockedAreaCenter(){
       if(isVoidCell(r, c) || isCoverCell(r, c)) continue;
       if(isCellBehindIntactWall(r, c)) continue;
       
+      // Skip cells in removed blood fog zones
+      let isInRemovedZone = false;
+      for(const zoneKey in bloodFogZones){
+        const zone = bloodFogZones[zoneKey];
+        if(zone.removed && zone.cells.some(zc => zc.r === r && zc.c === c)){
+          isInRemovedZone = true;
+          break;
+        }
+      }
+      if(isInRemovedZone) continue;
+      
       // Check if cell is a wall (but include destroyed walls)
       const wall = isWallCell(r, c);
       if(wall && !wall.destroyed) continue;
@@ -3847,11 +3858,18 @@ function buildGrid(){
       }
       
       // Check for blood fog zones
+      let isInRemovedBloodFog = false;
       for(const zoneKey in bloodFogZones){
         const zone = bloodFogZones[zoneKey];
-        if(zone.active && zone.cells.some(zc => zc.r === r && zc.c === c)){
-          cell.classList.add('blood-fog');
-          cell.title = '血雾区域：每回合-50HP-50SP+10层流血+10层怨念';
+        if(zone.cells.some(zc => zc.r === r && zc.c === c)){
+          if(zone.removed){
+            // Mark cell as void if blood fog zone is removed
+            cell.classList.add('void');
+            isInRemovedBloodFog = true;
+          } else if(zone.active){
+            cell.classList.add('blood-fog');
+            cell.title = '血雾区域：每回合-50HP-50SP+10层流血+10层怨念';
+          }
           break;
         }
       }
@@ -4531,6 +4549,13 @@ function finishEnemyTurn(){
   
   // Check for recovery tile 3 respawn
   checkRecoveryTile3Respawn();
+  
+  // Check if blood fog removal condition is met
+  if(shouldCheckBloodFogRemoval && !bloodFogRemovalPending){
+    if(areAllPlayerUnitsOutsideBloodFog()){
+      bloodFogRemovalPending = true;
+    }
+  }
 
   updateStepsUI();
   setTimeout(()=>{
@@ -4543,6 +4568,12 @@ function finishEnemyTurn(){
       playerBonusStepsNextTurn = 0;
     }
     appendLog('敌方回合结束，玩家回合开始');
+    
+    // Execute blood fog removal if pending
+    if(bloodFogRemovalPending){
+      removeBloodFogZones();
+    }
+    
     applyLevelSuppression();
     applyParalysisAtTurnStart('player');
     processUnitsTurnStart('player');
@@ -5058,10 +5089,14 @@ const destructibleWalls = {
 
 // Blood fog zones - activate 2 turns after wall destruction
 const bloodFogZones = {
-  zone1: { active: false, cells: [], turnsUntilActive: -1 },
-  zone2: { active: false, cells: [], turnsUntilActive: -1 },
-  zone3: { active: false, cells: [], turnsUntilActive: -1 }
+  zone1: { active: false, cells: [], turnsUntilActive: -1, removed: false },
+  zone2: { active: false, cells: [], turnsUntilActive: -1, removed: false },
+  zone3: { active: false, cells: [], turnsUntilActive: -1, removed: false }
 };
+
+// Track if we should check for blood fog removal condition
+let shouldCheckBloodFogRemoval = false;
+let bloodFogRemovalPending = false;
 
 // Recovery tiles
 const recoveryTiles = {
@@ -5192,6 +5227,12 @@ function destroyWall(wallId){
     appendLog(`血雾区域将在2回合后激活...`);
   }
   
+  // Enable blood fog removal checking when wall 3 is destroyed
+  if(wallId === 'wall3'){
+    shouldCheckBloodFogRemoval = true;
+    appendLog('墙体3已被摧毁！当所有友方单位离开血污区域后，地图将缩小');
+  }
+  
   // Spawn next wave
   spawnNextWave(wallId);
   renderAll();
@@ -5317,7 +5358,7 @@ function applyBloodFogDamage(){
   // Apply blood fog damage to units in active zones
   for(const zoneKey in bloodFogZones){
     const zone = bloodFogZones[zoneKey];
-    if(!zone.active) continue;
+    if(!zone.active || zone.removed) continue;
     
     for(const cell of zone.cells){
       const u = getUnitAt(cell.r, cell.c);
@@ -5328,6 +5369,49 @@ function applyBloodFogDamage(){
       }
     }
   }
+}
+
+function areAllPlayerUnitsOutsideBloodFog(){
+  // Check if all surviving player units are outside all blood fog zones (1, 2, 3)
+  const playerUnits = Object.values(units).filter(u => u.side === 'player' && u.hp > 0);
+  
+  for(const u of playerUnits){
+    // Check if this unit is in any blood fog zone
+    for(const zoneKey in bloodFogZones){
+      const zone = bloodFogZones[zoneKey];
+      if(zone.removed) continue; // Skip already removed zones
+      
+      for(const cell of zone.cells){
+        if(u.r === cell.r && u.c === cell.c){
+          return false; // Found a player unit in a blood fog zone
+        }
+      }
+    }
+  }
+  
+  return true; // All player units are outside blood fog zones
+}
+
+function removeBloodFogZones(){
+  // Mark all blood fog zones as removed and convert their cells to void
+  appendLog('=== 所有友方单位已离开血污区域！ ===');
+  appendLog('血污区域将在下回合被清除，地图将缩小...');
+  
+  // Mark zones as removed
+  for(const zoneKey in bloodFogZones){
+    const zone = bloodFogZones[zoneKey];
+    zone.removed = true;
+    zone.active = false; // Also deactivate to stop damage
+  }
+  
+  bloodFogRemovalPending = false;
+  renderAll();
+  
+  // Adjust camera to focus on remaining map
+  setTimeout(() => {
+    cameraReset({immediate: false});
+    appendLog('地图已缩小，镜头已调整到剩余区域');
+  }, 500);
 }
 
 function checkRecoveryTile3Respawn(){
