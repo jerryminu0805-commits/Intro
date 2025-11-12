@@ -5376,10 +5376,11 @@ function areAllPlayerUnitsOutsideBloodFog(){
   const playerUnits = Object.values(units).filter(u => u.side === 'player' && u.hp > 0);
   
   for(const u of playerUnits){
-    // Check if this unit is in any blood fog zone
+    // Check if this unit is in any blood fog zone that has been triggered
     for(const zoneKey in bloodFogZones){
       const zone = bloodFogZones[zoneKey];
       if(zone.removed) continue; // Skip already removed zones
+      if(zone.turnsUntilActive === -1) continue; // Skip zones that haven't been triggered yet
       
       for(const cell of zone.cells){
         if(u.r === cell.r && u.c === cell.c){
