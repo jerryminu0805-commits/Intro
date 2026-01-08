@@ -547,6 +547,18 @@ function transitionTo(targetScreen) {
 }
 
 function handleScreenEnter(screenId) {
+  // Stop Firestore subscriptions when leaving FarPVP screens.
+  if (screenId !== 'farpvp-lobby' && farPvpRoomsUnsub) {
+    try { farPvpRoomsUnsub(); } catch (e) {}
+    farPvpRoomsUnsub = null;
+  }
+  const keepRoomSub = ['farpvp-room', 'farpvp-player1', 'farpvp-player2', 'farpvp-battle'].includes(screenId);
+  if (!keepRoomSub && farPvpRoomUnsub) {
+    try { farPvpRoomUnsub(); } catch (e) {}
+    farPvpRoomUnsub = null;
+    farPvpRoomCache = null;
+  }
+
   if (screenId !== 'farpvp-lobby' && farPvpLobbyTimer) {
     clearInterval(farPvpLobbyTimer);
     farPvpLobbyTimer = null;
@@ -568,10 +580,44 @@ function handleScreenEnter(screenId) {
     loadDuoBattleFrame();
   }
   if (screenId === 'farpvp-lobby') {
+    const cloud = getFarPvpCloud();
+    if (cloud && !farPvpRoomsUnsub) {
+      cloud.ensureAuth().catch(() => {});
+      farPvpRoomsUnsub = cloud.subscribeRooms((rooms) => {
+        farPvpRoomsCache = rooms || [];
+        updateFarPvpLobbyList();
+      });
+    }
     updateFarPvpLobbyList();
     if (farPvpLobbyTimer) clearInterval(farPvpLobbyTimer);
     farPvpLobbyTimer = setInterval(updateFarPvpLobbyList, 2000);
   }
+  if (keepRoomSub) {
+    const cloud = getFarPvpCloud();
+    const roomId = farPvpState.roomId || localStorage.getItem(STORAGE_KEY_FARPVP_ROOM);
+    if (cloud && roomId && !farPvpRoomUnsub) {
+      cloud.ensureAuth().catch(() => {});
+      farPvpRoomUnsub = cloud.subscribeRoom(roomId, (room) => {
+        farPvpRoomCache = room;
+        // Keep local state mirrored from cloud.
+        if (room) {
+          farPvpState.roomId = room.id;
+          farPvpState.room = room;
+          if (room.selections) {
+            farPvpState.player1.selections = room.selections.player1 || farPvpState.player1.selections;
+            farPvpState.player2.selections = room.selections.player2 || farPvpState.player2.selections;
+          }
+          if (room.confirmed) {
+            farPvpState.player1.confirmed = !!room.confirmed.player1;
+            farPvpState.player2.confirmed = !!room.confirmed.player2;
+          }
+          handleFarPvpPhase(room);
+        }
+        updateFarPvpRoomView();
+      });
+    }
+  }
+
   if (screenId === 'farpvp-room') {
     updateFarPvpRoomView();
     if (farPvpRoomTimer) clearInterval(farPvpRoomTimer);
@@ -712,7 +758,34 @@ let farPvpLobbyTimer = null;
 let farPvpRoomTimer = null;
 let farPvpJoinRoomId = null;
 
+// Cloud (Firestore) caches / subscriptions
+let farPvpRoomsCache = [];
+let farPvpRoomCache = null;
+let farPvpRoomsUnsub = null;
+let farPvpRoomUnsub = null;
+
+function getFarPvpCloud() {
+  try {
+    return window.GW_FARPVP_CLOUD && window.GW_FARPVP_CLOUD.isEnabled ? window.GW_FARPVP_CLOUD : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function stopFarPvpCloudSubs() {
+  if (farPvpRoomsUnsub) {
+    try { farPvpRoomsUnsub(); } catch (e) {}
+    farPvpRoomsUnsub = null;
+  }
+  if (farPvpRoomUnsub) {
+    try { farPvpRoomUnsub(); } catch (e) {}
+    farPvpRoomUnsub = null;
+  }
+}
+
 function loadFarPvpRooms() {
+  const cloud = getFarPvpCloud();
+  if (cloud) return Array.isArray(farPvpRoomsCache) ? farPvpRoomsCache : [];
   try {
     const saved = localStorage.getItem(STORAGE_KEY_FARPVP_ROOMS);
     return saved ? JSON.parse(saved) : [];
@@ -738,6 +811,10 @@ function setFarPvpRoomId(roomId) {
 function getFarPvpRoom() {
   const roomId = farPvpState.roomId || localStorage.getItem(STORAGE_KEY_FARPVP_ROOM);
   if (!roomId) return null;
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    return farPvpRoomCache;
+  }
   const rooms = loadFarPvpRooms();
   return rooms.find((room) => room.id === roomId) || null;
 }
@@ -765,7 +842,7 @@ function updateFarPvpLobbyList() {
 
     const meta = document.createElement('div');
     meta.className = 'farpvp-room-meta';
-    meta.textContent = room.password ? '🔒 有密码' : '开放';
+    meta.textContent = room.password || room.passHash ? '🔒 有密码' : '开放';
 
     item.appendChild(title);
     item.appendChild(meta);
@@ -794,6 +871,38 @@ function closeFarPvpJoinModal() {
   if (!modal) return;
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
+}
+
+function handleFarPvpPhase(room) {
+  const cloud = getFarPvpCloud();
+  if (!cloud || !room) return;
+
+  const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
+  const isHost = localStorage.getItem(STORAGE_KEY_FARPVP_HOST) === 'true';
+
+  // Auto advance: when both confirmed, host moves to battle.
+  if (room.phase === 'select' && room.confirmed?.player1 && room.confirmed?.player2 && isHost) {
+    cloud.setPhase({ roomId: room.id, phase: 'battle' }).catch(() => {});
+  }
+
+  // Navigation based on room phase.
+  if (room.phase === 'select') {
+    const target = role === 'player2' ? 'farpvp-player2' : 'farpvp-player1';
+    if (currentScreen !== target) {
+      transitionTo(target);
+    } else {
+      // Refresh overlay state
+      updateFarPvpWaitOverlay(role);
+    }
+  }
+  if (room.phase === 'battle') {
+    // Persist selections for the battle iframe (works for both local & cloud flows).
+    saveFarPvpSelectedSkills({
+      player1: farPvpState.player1.selections,
+      player2: farPvpState.player2.selections,
+    });
+    if (currentScreen !== 'farpvp-battle') transitionTo('farpvp-battle');
+  }
 }
 
 function updateFarPvpRoomView() {
@@ -827,6 +936,12 @@ function updateFarPvpRoomView() {
 }
 
 function saveFarPvpRoom(room) {
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    // In cloud mode, the authoritative state lives in Firestore.
+    // Local rooms list is not used.
+    return;
+  }
   const rooms = loadFarPvpRooms();
   const index = rooms.findIndex((item) => item.id === room.id);
   if (index >= 0) {
@@ -837,20 +952,31 @@ function saveFarPvpRoom(room) {
   saveFarPvpRooms(rooms);
 }
 
-function createFarPvpRoom(name, password) {
+async function createFarPvpRoom(name, password) {
   const roomName = name?.trim() || `房间-${Math.floor(Math.random() * 9999)}`;
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    try {
+      await cloud.ensureAuth();
+      const room = await cloud.createRoom({ name: roomName, password: password || '' });
+      setFarPvpRole('player1');
+      setFarPvpRoomId(room.id);
+      localStorage.setItem(STORAGE_KEY_FARPVP_HOST, 'true');
+      transitionTo('farpvp-room');
+      return;
+    } catch (e) {
+      console.warn('[FarPVP] createRoom failed:', e);
+      showToast('创建房间失败（云服务）。已切换为本地房间。');
+    }
+  }
+
+  // Local fallback
   const room = {
     id: `room-${Date.now()}`,
     name: roomName,
     password: password || '',
-    players: {
-      player1: '玩家1',
-      player2: null,
-    },
-    ready: {
-      player1: false,
-      player2: false,
-    },
+    players: { player1: '玩家1', player2: null },
+    ready: { player1: false, player2: false },
   };
   saveFarPvpRoom(room);
   setFarPvpRole('player1');
@@ -859,7 +985,25 @@ function createFarPvpRoom(name, password) {
   transitionTo('farpvp-room');
 }
 
-function joinFarPvpRoom(roomId, password) {
+async function joinFarPvpRoom(roomId, password) {
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    try {
+      await cloud.ensureAuth();
+      const room = await cloud.joinRoom({ roomId, password: password || '' });
+      setFarPvpRole('player2');
+      setFarPvpRoomId(room.id);
+      localStorage.setItem(STORAGE_KEY_FARPVP_HOST, 'false');
+      transitionTo('farpvp-room');
+      return;
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : '';
+      if (msg) showToast(msg);
+      else showToast('进入房间失败（云服务）。');
+      return;
+    }
+  }
+
   const rooms = loadFarPvpRooms();
   const room = rooms.find((item) => item.id === roomId);
   if (!room) {
@@ -883,19 +1027,42 @@ function joinFarPvpRoom(roomId, password) {
   transitionTo('farpvp-room');
 }
 
-function toggleFarPvpReady(playerKey) {
+async function toggleFarPvpReady(playerKey) {
   const room = getFarPvpRoom();
   if (!room) return;
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    try {
+      await cloud.toggleReady({ roomId: room.id, slot: playerKey });
+    } catch (e) {
+      showToast('准备状态更新失败（云服务）。');
+    }
+    return;
+  }
   room.ready[playerKey] = !room.ready[playerKey];
   saveFarPvpRoom(room);
   updateFarPvpRoomView();
 }
 
-function moveFarPvpPlayerSlot(targetSlot) {
+async function moveFarPvpPlayerSlot(targetSlot) {
   const room = getFarPvpRoom();
   if (!room) return;
   const currentRole = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
   if (currentRole === targetSlot) return;
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    if (room.players?.[targetSlot]) {
+      showToast('该位置已有玩家。');
+      return;
+    }
+    try {
+      await cloud.moveSlot({ roomId: room.id, fromSlot: currentRole, toSlot: targetSlot });
+      setFarPvpRole(targetSlot);
+    } catch (e) {
+      showToast('切换位置失败（云服务）。');
+    }
+    return;
+  }
   if (room.players?.[targetSlot]) {
     showToast('该位置已有玩家。');
     return;
@@ -909,7 +1076,7 @@ function moveFarPvpPlayerSlot(targetSlot) {
   updateFarPvpRoomView();
 }
 
-function startFarPvpMatch() {
+async function startFarPvpMatch() {
   const room = getFarPvpRoom();
   if (!room) return;
   const isHost = localStorage.getItem(STORAGE_KEY_FARPVP_HOST) === 'true';
@@ -921,12 +1088,39 @@ function startFarPvpMatch() {
     showToast('双方都准备后才能开始。');
     return;
   }
+
+  const cloud = getFarPvpCloud();
+  if (cloud) {
+    try {
+      await cloud.resetForSelection({ roomId: room.id });
+      // Navigation is handled by room snapshots (phase=select).
+    } catch (e) {
+      showToast('开始失败（云服务）。');
+    }
+    return;
+  }
+
   resetFarPvpSelections();
   farPvpState.player1.confirmed = false;
   farPvpState.player2.confirmed = false;
   farPvpState.player1.currentCharacter = 'adora';
   farPvpState.player2.currentCharacter = 'adora';
   transitionTo('farpvp-player1');
+}
+
+function leaveFarPvpRoom() {
+  const cloud = getFarPvpCloud();
+  const roomId = farPvpState.roomId || localStorage.getItem(STORAGE_KEY_FARPVP_ROOM);
+  const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
+  const isHost = localStorage.getItem(STORAGE_KEY_FARPVP_HOST) === 'true';
+  if (cloud && roomId) {
+    cloud.leaveRoom({ roomId, slot: role, isHost }).catch(() => {});
+  }
+  setFarPvpRoomId('');
+  localStorage.setItem(STORAGE_KEY_FARPVP_HOST, 'false');
+  // Keep role as player1 for a clean next join.
+  setFarPvpRole('player1');
+  farPvpRoomCache = null;
 }
 
 function renderFarPvpSkillScreen(playerKey) {
@@ -1038,6 +1232,17 @@ function renderFarPvpSkillScreen(playerKey) {
 
   enableFarPvpSkillDrag(playerKey);
   updateFarPvpWaitOverlay(playerKey);
+
+  const confirmBtn = screen.querySelector('.farpvp-player-confirm');
+  if (confirmBtn) {
+    const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
+    const cloud = getFarPvpCloud();
+    // In local hotseat mode: only the active player can confirm.
+    // In cloud mode: only your own role can confirm, and only once.
+    const disabled = (cloud ? role !== playerKey : false) || !!farPvpState[playerKey]?.confirmed;
+    confirmBtn.disabled = disabled;
+    confirmBtn.classList.toggle('is-confirmed', !!farPvpState[playerKey]?.confirmed);
+  }
 }
 
 function updateFarPvpWaitOverlay(playerKey) {
@@ -1045,7 +1250,15 @@ function updateFarPvpWaitOverlay(playerKey) {
   if (!screen) return;
   const overlay = screen.querySelector('.farpvp-wait-overlay');
   const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
-  const shouldWait = role !== playerKey;
+  const cloud = getFarPvpCloud();
+  let shouldWait = role !== playerKey;
+  if (cloud) {
+    const room = getFarPvpRoom();
+    const other = playerKey === 'player1' ? 'player2' : 'player1';
+    // In cloud mode, each device stays on its own selection screen.
+    // Show overlay only after you confirm, while waiting for the other player.
+    shouldWait = !!room && !!room.confirmed?.[playerKey] && !room.confirmed?.[other];
+  }
   if (overlay) overlay.classList.toggle('active', shouldWait);
 }
 
@@ -1062,6 +1275,10 @@ function enableFarPvpSkillDrag(playerKey) {
         event.preventDefault();
         return;
       }
+      if (farPvpState[playerKey]?.confirmed) {
+        event.preventDefault();
+        return;
+      }
       event.dataTransfer?.setData('text/plain', card.dataset.skillId || '');
     });
   });
@@ -1074,6 +1291,7 @@ function enableFarPvpSkillDrag(playerKey) {
       event.preventDefault();
       const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
       if (role !== playerKey) return;
+      if (farPvpState[playerKey]?.confirmed) return;
       const draggedSkillId = event.dataTransfer?.getData('text/plain');
       if (!draggedSkillId) return;
       const characterId = farPvpState[playerKey].currentCharacter;
@@ -4759,10 +4977,10 @@ function bindFarPvpMode() {
 
   const createBtn = document.querySelector('.farpvp-create-btn');
   if (createBtn) {
-    createBtn.addEventListener('click', () => {
+    createBtn.addEventListener('click', async () => {
       const nameInput = document.getElementById('farpvp-room-name');
       const passInput = document.getElementById('farpvp-room-pass');
-      createFarPvpRoom(nameInput?.value || '', passInput?.value || '');
+      await createFarPvpRoom(nameInput?.value || '', passInput?.value || '');
       if (nameInput) nameInput.value = '';
       if (passInput) passInput.value = '';
     });
@@ -4780,44 +4998,65 @@ function bindFarPvpMode() {
 
   const joinConfirm = document.querySelector('.farpvp-join-confirm');
   if (joinConfirm) {
-    joinConfirm.addEventListener('click', () => {
+    joinConfirm.addEventListener('click', async () => {
       const input = document.getElementById('farpvp-join-pass');
-      joinFarPvpRoom(farPvpJoinRoomId, input?.value || '');
+      await joinFarPvpRoom(farPvpJoinRoomId, input?.value || '');
       closeFarPvpJoinModal();
     });
   }
 
   document.querySelectorAll('.farpvp-slot').forEach((slot) => {
-    slot.addEventListener('click', () => {
+    slot.addEventListener('click', async () => {
       if (slot.dataset.slot) {
-        moveFarPvpPlayerSlot(slot.dataset.slot);
+        await moveFarPvpPlayerSlot(slot.dataset.slot);
       }
     });
   });
 
   document.querySelectorAll('.farpvp-ready-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const playerKey = btn.dataset.player;
       const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
       if (playerKey !== role) {
         showToast('只能准备自己的位置。');
         return;
       }
-      toggleFarPvpReady(playerKey);
+      await toggleFarPvpReady(playerKey);
     });
   });
 
   const startBtn = document.querySelector('.farpvp-start-btn');
   if (startBtn) {
-    startBtn.addEventListener('click', startFarPvpMatch);
+    startBtn.addEventListener('click', async () => {
+      await startFarPvpMatch();
+    });
   }
 
   document.querySelectorAll('.farpvp-player-confirm').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const playerKey = btn.dataset.player;
       const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
       if (playerKey !== role) {
         showToast('等待对方确认。');
+        return;
+      }
+      if (farPvpState[playerKey]?.confirmed) {
+        showToast('已确认。');
+        return;
+      }
+
+      const cloud = getFarPvpCloud();
+      const roomId = farPvpState.roomId || localStorage.getItem(STORAGE_KEY_FARPVP_ROOM);
+      if (cloud && roomId) {
+        try {
+          await cloud.submitSelections({ roomId, slot: playerKey, selections: farPvpState[playerKey].selections });
+          farPvpState[playerKey].confirmed = true;
+          renderFarPvpSkillScreen(playerKey);
+          updateFarPvpWaitOverlay(playerKey);
+          showToast('已确认，等待对方...');
+        } catch (e) {
+          showToast('确认失败（云服务）。');
+        }
         return;
       }
       if (playerKey === 'player1') {
@@ -4833,6 +5072,13 @@ function bindFarPvpMode() {
         });
         transitionTo('farpvp-battle');
       }
+    });
+  });
+
+  // If user exits FarPVP screens, release the slot in cloud mode.
+  document.querySelectorAll('.screen-farpvp-room [data-target="farpvp-lobby"], .screen-farpvp-battle [data-target="farpvp-lobby"], .screen-farpvp-lobby [data-target="menu"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      leaveFarPvpRoom();
     });
   });
 }
