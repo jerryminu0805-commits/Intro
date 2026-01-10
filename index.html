@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GOD'S WILL Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <div class="transition-mask visible covering"></div>
+    <header class="global-header">
+      <h1 class="game-title">GOD'S WILL</h1>
+    </header>
+    <!-- 背景音乐（循环自动播放，先静音后淡入） -->
+    <audio id="bgm" src="LYSS (Cover).mp3" loop preload="auto" autoplay muted></audio>
+    <!-- 关卡环境音效（剧情时播放） -->
+    <audio id="stage-ambient" src="WaterWave.mp3" preload="auto" loop></audio>
+
+    <main class="screen screen-menu active" data-screen="menu" aria-labelledby="menu-title">
+      <div class="menu-background"></div>
+      <div class="menu-content">
+        <div class="logo-block" id="menu-title">
+          <span class="logo-word">GOD'S</span>
+          <span class="logo-word">WILL</span>
+        </div>
+        <nav class="menu-actions" aria-label="主菜单">
+          <button class="menu-btn" data-target="chapters">开始</button>
+          <button class="menu-btn" data-action="settings">设置</button>
+          <button class="menu-btn" data-action="exit">离开</button>
+          <button class="menu-btn" data-target="tutorial">教学</button>
+          <button class="menu-btn" data-action="farpvp">联机模式</button>
+        </nav>
+      </div>
+      <aside class="settings-panel" aria-hidden="true">
+        <h2>设置</h2>
+        <p>设置功能将在后续版本开放。敬请期待。</p>
+        <button class="panel-close" type="button">关闭</button>
+      </aside>
+    </main>
+
+    <main class="screen screen-chapters" data-screen="chapters" aria-labelledby="chapter-title">
+      <div class="screen-inner">
+        <header class="screen-bar">
+          <button class="back-btn" data-target="menu" aria-label="返回菜单">返回</button>
+        </header>
+        <section class="chapter-board" id="chapter-title">
+          <h2>章节选择</h2>
+          <p class="chapter-tip">只有《Demo》已解锁，其余章节仍被封锁。</p>
+          <div class="chapter-columns">
+            <button class="chapter-card unlocked" data-chapter="demo">
+              <span class="chapter-index">01</span>
+              <span class="chapter-name">Demo</span>
+              <span class="chapter-status">可用</span>
+            </button>
+            <button class="chapter-card locked" data-chapter="02">
+              <span class="chapter-index">02</span>
+              <span class="chapter-name">Locked</span>
+              <span class="chapter-status">锁定</span>
+            </button>
+            <button class="chapter-card locked" data-chapter="03">
+              <span class="chapter-index">03</span>
+              <span class="chapter-name">Locked</span>
+              <span class="chapter-status">锁定</span>
+            </button>
+            <button class="chapter-card locked" data-chapter="04">
+              <span class="chapter-index">04</span>
+              <span class="chapter-name">Locked</span>
+              <span class="chapter-status">锁定</span>
+            </button>
+            <button class="chapter-card locked" data-chapter="05">
+              <span class="chapter-index">05</span>
+              <span class="chapter-name">Locked</span>
+              <span class="chapter-status">锁定</span>
+            </button>
+            <button class="chapter-card locked" data-chapter="06">
+              <span class="chapter-index">06</span>
+              <span class="chapter-name">Locked</span>
+              <span class="chapter-status">锁定</span>
+            </button>
+            <button class="chapter-card locked" data-chapter="07">
+              <span class="chapter-index">07</span>
+              <span class="chapter-name">Locked</span>
+              <span class="chapter-status">锁定</span>
+            </button>
+          </div>
+        </section>
+      </div>
+      <button class="duo-mode-btn" type="button" data-action="duo-mode">双人模式</button>
+    </main>
+
+    <main class="screen screen-stages" data-screen="stages" aria-labelledby="stage-title">
+      <div class="screen-inner">
+        <header class="screen-bar">
+          <button class="back-btn" data-target="chapters" aria-label="返回章节">返回章节</button>
+          <div class="screen-bar-actions">
+            <button class="characters-btn" data-target="characters">角色</button>
+          </div>
+        </header>
+        <section class="stage-board" id="stage-title">
+          <h2>Demo · 关卡选择</h2>
+          <div class="stage-layout">
+            <aside class="stage-list" aria-label="关卡列表">
+              <button class="stage-item stage-intro active" data-stage="intro">Intro</button>
+              <button class="stage-item stage-heresy" data-stage="firstHeresy">初见赫雷西</button>
+              <button class="stage-item stage-abandoned" data-stage="abandonedAnimals">被遗弃的动物</button>
+              <button class="stage-item stage-blood-tower" data-stage="bloodTowerPlan">血楼计划</button>
+              <button class="stage-item stage-exhausted" data-stage="fatigue">疲惫的极限</button>
+              <button class="stage-item stage-seven" data-stage="sevenSeas">七海</button>
+              <button class="stage-item stage-old-love" data-stage="oldLove">旧情未了</button>
+            </aside>
+            <section class="stage-detail" aria-live="polite">
+              <header class="stage-header">
+                <h3 class="stage-name">Intro</h3>
+                <p class="stage-subtitle">基础战斗演练</p>
+              </header>
+              <div class="stage-narrative"></div>
+              <div class="map-panel">
+                <div class="map-header">
+                  <h4>战术地图预览</h4>
+                  <span class="map-size"></span>
+                </div>
+                <div class="map-grid" role="img" aria-label="关卡战术地图"></div>
+                <ul class="map-legend">
+                  <li><span class="legend-chip legend-player"></span> 我方初始</li>
+                  <li><span class="legend-chip legend-enemy"></span> 敌方单位</li>
+                  <li><span class="legend-chip legend-cover"></span> 掩体</li>
+                  <li><span class="legend-chip legend-void"></span> 空缺</li>
+                </ul>
+              </div>
+              <div class="stage-brief"></div>
+              <section class="enemy-roster">
+                <h4>敌方阵容</h4>
+                <div class="enemy-list"></div>
+              </section>
+              <div class="stage-actions">
+                <button class="enter-btn" type="button">进入关卡</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-characters" data-screen="characters" aria-labelledby="character-title">
+      <div class="screen-inner">
+        <header class="screen-bar">
+          <button class="back-btn" data-target="stages" aria-label="返回关卡">返回关卡</button>
+        </header>
+        <section class="character-board" id="character-title">
+          <h2>作战成员</h2>
+          <div class="character-layout">
+            <div class="character-portrait">
+              <div class="portrait-frame">
+                <div class="portrait-art" role="img" aria-label="角色立绘预览">
+                  <img class="portrait-image" src="" alt="Adora 立绘" />
+                </div>
+              </div>
+              <div class="character-level">Lv. <span class="level-number">20</span></div>
+            </div>
+            <div class="character-detail">
+              <nav class="character-tabs" aria-label="角色选择">
+                <button class="character-tab active" data-character="adora">Adora</button>
+                <button class="character-tab" data-character="karma">Karma</button>
+                <button class="character-tab" data-character="dario">Dario</button>
+              </nav>
+              <nav class="detail-tabs" aria-label="信息类型">
+                <button class="detail-tab active" data-section="bio">介绍</button>
+                <button class="detail-tab" data-section="skills">技能</button>
+                <button class="detail-tab" data-section="accessories" id="accessories-tab" style="display: none;">配件</button>
+                <button class="detail-tab" data-section="skillSelection" id="skill-selection-tab" style="display: none;">技能选择</button>
+              </nav>
+              <article class="detail-content"></article>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-tutorial" data-screen="tutorial" aria-labelledby="tutorial-title">
+      <div class="screen-inner">
+        <header class="screen-bar">
+          <button class="back-btn" data-target="menu" aria-label="返回菜单">返回菜单</button>
+        </header>
+        <section class="tutorial-board" id="tutorial-title">
+          <h2>教学</h2>
+          <nav class="tutorial-tabs" aria-label="教学类别">
+            <button class="tutorial-tab active" data-topic="basics">简短游戏玩法</button>
+            <button class="tutorial-tab" data-topic="skills">技能</button>
+            <button class="tutorial-tab" data-topic="effects">特殊效果（目前有的）</button>
+            <button class="tutorial-tab" data-topic="enemies">敌人</button>
+          </nav>
+          <article class="tutorial-content"></article>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-farpvp-lobby" data-screen="farpvp-lobby" aria-labelledby="farpvp-lobby-title">
+      <div class="screen-inner">
+        <header class="screen-bar">
+          <button class="back-btn" data-target="menu" aria-label="返回菜单">返回菜单</button>
+        </header>
+        <section class="farpvp-lobby-board" id="farpvp-lobby-title">
+          <h2>联机大厅</h2>
+          <div class="farpvp-lobby-layout">
+            <div class="farpvp-room-list">
+              <div class="farpvp-room-list-header">
+                <h3>房间列表</h3>
+                <button class="farpvp-refresh" type="button">刷新</button>
+              </div>
+              <div class="farpvp-room-items" id="farpvp-room-items"></div>
+            </div>
+            <div class="farpvp-room-create">
+              <h3>创建房间</h3>
+              <label class="farpvp-label">房间名字：
+                <input class="farpvp-input" type="text" id="farpvp-room-name" maxlength="20" placeholder="请输入房间名" />
+              </label>
+              <label class="farpvp-label">房间密码：
+                <input class="farpvp-input" type="password" id="farpvp-room-pass" maxlength="12" placeholder="可留空" />
+              </label>
+              <button class="farpvp-create-btn" type="button">创建房间</button>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="farpvp-join-modal hidden" id="farpvp-join-modal" aria-hidden="true">
+        <div class="farpvp-join-card">
+          <h3>进入房间</h3>
+          <p class="farpvp-join-name"></p>
+          <label class="farpvp-label">房间密码：
+            <input class="farpvp-input" type="password" id="farpvp-join-pass" maxlength="12" />
+          </label>
+          <div class="farpvp-join-actions">
+            <button class="farpvp-join-cancel" type="button">取消</button>
+            <button class="farpvp-join-confirm" type="button">确定</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <main class="screen screen-farpvp-room" data-screen="farpvp-room" aria-labelledby="farpvp-room-title">
+      <div class="screen-inner">
+        <header class="screen-bar">
+          <button class="back-btn" data-target="farpvp-lobby" aria-label="返回大厅">返回大厅</button>
+        </header>
+        <section class="farpvp-room-board" id="farpvp-room-title">
+          <h2>房间</h2>
+          <p class="farpvp-room-subtitle" id="farpvp-room-subtitle"></p>
+          <div class="farpvp-room-slots">
+            <div class="farpvp-slot" data-slot="player1">
+              <div class="farpvp-slot-title">玩家1</div>
+              <div class="farpvp-slot-body"></div>
+              <button class="farpvp-ready-btn" type="button" data-player="player1">准备</button>
+            </div>
+            <div class="farpvp-room-center">
+              <button class="farpvp-start-btn" type="button" disabled>开始</button>
+            </div>
+            <div class="farpvp-slot" data-slot="player2">
+              <div class="farpvp-slot-title">玩家2</div>
+              <div class="farpvp-slot-body"></div>
+              <button class="farpvp-ready-btn" type="button" data-player="player2">准备</button>
+            </div>
+          </div>
+          <p class="farpvp-room-hint">点击空格子可切换自己所在位置。</p>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-farpvp-player screen-farpvp-player1" data-screen="farpvp-player1" aria-labelledby="farpvp-player1-title">
+      <div class="screen-inner">
+        <section class="farpvp-skill-board" data-player="player1">
+          <header class="farpvp-skill-header">
+            <div class="farpvp-player-title" id="farpvp-player1-title">玩家1 · 技能选择</div>
+          </header>
+          <div class="farpvp-skill-content"></div>
+          <button class="farpvp-player-confirm" type="button" data-player="player1">确认</button>
+        </section>
+      </div>
+      <div class="farpvp-wait-overlay" aria-hidden="true">
+        <span>等待对方选择...</span>
+      </div>
+    </main>
+
+    <main class="screen screen-farpvp-player screen-farpvp-player2" data-screen="farpvp-player2" aria-labelledby="farpvp-player2-title">
+      <div class="screen-inner">
+        <section class="farpvp-skill-board" data-player="player2">
+          <header class="farpvp-skill-header">
+            <div class="farpvp-player-title" id="farpvp-player2-title">玩家2 · 技能选择</div>
+          </header>
+          <div class="farpvp-skill-content"></div>
+          <button class="farpvp-player-confirm" type="button" data-player="player2">确认</button>
+        </section>
+      </div>
+      <div class="farpvp-wait-overlay" aria-hidden="true">
+        <span>等待对方选择...</span>
+      </div>
+    </main>
+
+    <main class="screen screen-farpvp-battle" data-screen="farpvp-battle" aria-labelledby="farpvp-battle-title">
+      <div class="screen-inner">
+        <section class="farpvp-battle-board">
+          <header class="farpvp-battle-header">
+            <h2 id="farpvp-battle-title">远程联机战斗</h2>
+            <button class="back-btn" data-target="farpvp-lobby" type="button">退出联机</button>
+          </header>
+          <div class="farpvp-battle-stage">
+            <iframe class="farpvp-battle-frame" title="远程联机战斗" src="" loading="lazy"></iframe>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-duo-confirm" data-screen="duo-confirm" aria-labelledby="duo-confirm-title">
+      <div class="duo-confirm-background" role="presentation"></div>
+      <div class="duo-confirm-content">
+        <h2 class="duo-confirm-title" id="duo-confirm-title">双人模式确认</h2>
+        <div class="duo-confirm-buttons" role="group" aria-label="双人确认">
+          <div class="duo-confirm-slot">
+            <button class="duo-confirm-btn duo-confirm-btn-left" type="button" data-player="player1">
+              1号玩家确认
+            </button>
+          </div>
+          <div class="duo-confirm-slot">
+            <button class="duo-confirm-btn duo-confirm-btn-right" type="button" data-player="player2">
+              2号玩家确认
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <main class="screen screen-duo-player screen-duo-player1" data-screen="duo-player1" aria-labelledby="duo-player1-title">
+      <div class="screen-inner">
+        <section class="duo-skill-board" data-player="player1">
+          <header class="duo-skill-header">
+            <div class="duo-player-title" id="duo-player1-title">玩家1 · 技能选择</div>
+          </header>
+          <div class="duo-skill-content"></div>
+          <button class="duo-player-confirm" type="button" data-player="player1">确认</button>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-duo-player screen-duo-player2" data-screen="duo-player2" aria-labelledby="duo-player2-title">
+      <div class="screen-inner">
+        <section class="duo-skill-board" data-player="player2">
+          <header class="duo-skill-header">
+            <div class="duo-player-title" id="duo-player2-title">玩家2 · 技能选择</div>
+          </header>
+          <div class="duo-skill-content"></div>
+          <button class="duo-player-confirm" type="button" data-player="player2">确认</button>
+        </section>
+      </div>
+    </main>
+
+    <main class="screen screen-duo-battle" data-screen="duo-battle" aria-labelledby="duo-battle-title">
+      <div class="screen-inner">
+        <section class="duo-battle-board">
+          <header class="duo-battle-header">
+            <h2 id="duo-battle-title">双人战斗</h2>
+          </header>
+          <div class="duo-battle-stage">
+            <iframe class="duo-battle-frame" title="七海作战队战斗" src="" loading="lazy"></iframe>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <section class="story-overlay" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="story-backdrop"></div>
+      <div class="story-characters"></div>
+      <div class="story-panel">
+        <div class="story-speaker" aria-live="polite"></div>
+        <div class="story-text" aria-live="polite"></div>
+        <div class="story-controls">
+          <button class="story-skip" type="button">跳过</button>
+          <button class="story-next" type="button">继续</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="toast" role="status" aria-live="polite"></div>
+    <div class="duo-transition" aria-hidden="true">
+      <div class="duo-transition-text"></div>
+    </div>
+  </div>
+
+  <!-- FarPVP Cloud Rooms (Firebase Firestore). If Firebase isn't configured, the game falls back to local rooms. -->
+  <script src="firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="firebase-farpvp-cloud.js"></script>
+
+  <script src="portraits.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
