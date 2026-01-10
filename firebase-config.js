@@ -2,7 +2,7 @@
 // If you want to disable cloud rooms and fall back to local rooms, set this to null.
 
 window.GW_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyD3c0cSE6nD4s_FaDPR7maRsPTZQ-7QoY",
+  apiKey: "AIzaSyD3c0cSEE6nD4s_FaDPR7maRsPTZQ-7QoY",
   authDomain: "gw-demo-server.firebaseapp.com",
   projectId: "gw-demo-server",
   storageBucket: "gw-demo-server.firebasestorage.app",
