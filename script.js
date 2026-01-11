@@ -762,6 +762,17 @@ let farPvpRoomUnsub = null;
 let farPvpJoinRoomId = null;
 let farPvpLastPhase = null;
 
+function getFarPvpActivePlayer(phase) {
+  if (phase === 'select-player1' || phase === 'select') return 'player1';
+  if (phase === 'select-player2') return 'player2';
+  return null;
+}
+
+function refreshFarPvpWaitOverlays() {
+  updateFarPvpWaitOverlay('player1');
+  updateFarPvpWaitOverlay('player2');
+}
+
 function getFarPvpCloud() {
   const cloud = window.GWFarPvpCloud;
   if (!cloud) return null;
@@ -773,6 +784,7 @@ function getFarPvpCloud() {
 
 function handleFarPvpCloudRoomUpdate(room) {
   farPvpState.cloudRoom = room;
+  farPvpState.room = room;
 
   const cloud = getFarPvpCloud();
   if (cloud) {
@@ -790,16 +802,18 @@ function handleFarPvpCloudRoomUpdate(room) {
   }
 
   const phaseChanged = room.phase !== farPvpLastPhase;
+  const enteringSelect =
+    room.phase?.startsWith('select') && !(farPvpLastPhase || '').startsWith('select');
   if (phaseChanged) {
     farPvpLastPhase = room.phase;
   }
 
   const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
 
-  if (room.phase === 'select') {
+  if (room.phase?.startsWith('select')) {
     // Ensure each client goes to their own selection screen.
-    // Only reset once when entering the select phase, otherwise we'd wipe player's picks.
-    if (phaseChanged) {
+    // Only reset once when first entering the select phase.
+    if (enteringSelect) {
       resetFarPvpSelections();
       farPvpState.player1.confirmed = false;
       farPvpState.player2.confirmed = false;
@@ -810,6 +824,7 @@ function handleFarPvpCloudRoomUpdate(room) {
     if (currentScreen !== target) {
       transitionTo(target);
     }
+    refreshFarPvpWaitOverlays();
     return;
   }
 
@@ -991,6 +1006,7 @@ function createFarPvpRoom(name, password) {
       player1: false,
       player2: false,
     },
+    phase: 'lobby',
   };
   saveFarPvpRoom(room);
   setFarPvpRole('player1');
@@ -1102,6 +1118,9 @@ function startFarPvpMatch() {
     showToast('双方都准备后才能开始。');
     return;
   }
+  room.phase = 'select-player1';
+  saveFarPvpRoom(room);
+  farPvpState.room = room;
   resetFarPvpSelections();
   farPvpState.player1.confirmed = false;
   farPvpState.player2.confirmed = false;
@@ -1226,7 +1245,8 @@ function updateFarPvpWaitOverlay(playerKey) {
   if (!screen) return;
   const overlay = screen.querySelector('.farpvp-wait-overlay');
   const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
-  const shouldWait = role !== playerKey;
+  const activePlayer = getFarPvpActivePlayer(farPvpState.room?.phase);
+  const shouldWait = activePlayer ? role !== activePlayer : role !== playerKey;
   if (overlay) overlay.classList.toggle('active', shouldWait);
 }
 
@@ -5029,6 +5049,12 @@ function bindFarPvpMode() {
 
       if (playerKey === 'player1') {
         farPvpState.player1.confirmed = true;
+        const room = getFarPvpRoom();
+        if (room) {
+          room.phase = 'select-player2';
+          saveFarPvpRoom(room);
+          farPvpState.room = room;
+        }
         transitionTo('farpvp-player2');
         return;
       }
@@ -5038,6 +5064,12 @@ function bindFarPvpMode() {
           player1: farPvpState.player1.selections,
           player2: farPvpState.player2.selections,
         });
+        const room = getFarPvpRoom();
+        if (room) {
+          room.phase = 'battle';
+          saveFarPvpRoom(room);
+          farPvpState.room = room;
+        }
         transitionTo('farpvp-battle');
       }
     });

@@ -2281,6 +2281,11 @@ body {
   padding: 18px;
 }
 
+.farpvp-room-create {
+  display: flex;
+  flex-direction: column;
+}
+
 .farpvp-room-list-header {
   display: flex;
   justify-content: space-between;
@@ -2349,6 +2354,11 @@ body {
   background: linear-gradient(135deg, #5a7cff, #8d5bff);
   color: #fff;
   transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.farpvp-create-btn {
+  align-self: flex-end;
+  margin-top: auto;
 }
 
 .farpvp-refresh,

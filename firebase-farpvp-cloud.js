@@ -337,7 +337,7 @@
       const ready = data.ready || {};
       if (!(ready.player1 && ready.player2)) throw new Error('双方都准备后才能开始。');
       tx.update(ref, {
-        phase: 'select',
+        phase: 'select-player1',
         confirmed: { player1: false, player2: false },
         selections: null,
         updatedAt: serverTs(),
@@ -349,11 +349,43 @@
     if (!roomId || !slot) return;
     await ensureAnonAuth();
     const ref = roomsCol.doc(roomId);
-    const patch = {};
-    patch[`selections.${slot}`] = selections || null;
-    patch[`confirmed.${slot}`] = true;
-    patch.updatedAt = serverTs();
-    await ref.set(patch, { merge: true });
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('房间已不存在。');
+      const data = snap.data() || {};
+      if (data.phase === 'closed') throw new Error('房间已关闭。');
+      const phase = data.phase || 'lobby';
+      const selectionsPayload = data.selections || {};
+      const confirmed = data.confirmed || { player1: false, player2: false };
+
+      if (phase === 'select-player1' || phase === 'select') {
+        if (slot !== 'player1') throw new Error('等待玩家1选择。');
+        selectionsPayload.player1 = selections || null;
+        confirmed.player1 = true;
+        tx.update(ref, {
+          selections: selectionsPayload,
+          confirmed,
+          phase: 'select-player2',
+          updatedAt: serverTs(),
+        });
+        return;
+      }
+
+      if (phase === 'select-player2') {
+        if (slot !== 'player2') throw new Error('等待玩家2选择。');
+        selectionsPayload.player2 = selections || null;
+        confirmed.player2 = true;
+        tx.update(ref, {
+          selections: selectionsPayload,
+          confirmed,
+          phase: 'battle',
+          updatedAt: serverTs(),
+        });
+        return;
+      }
+
+      throw new Error('当前阶段无法提交。');
+    });
   };
 
   api.closeRoom = async function closeRoom(roomId) {
@@ -365,7 +397,7 @@
 
   // Helper for host: advance to battle once both confirmed.
   api._hostTryAdvanceToBattle = async function _hostTryAdvanceToBattle(room) {
-    if (!room || room.phase !== 'select') return;
+    if (!room || !room.phase?.startsWith('select')) return;
     const uid = auth.currentUser?.uid || api.uid;
     if (!uid || room.hostUid !== uid) return;
     if (!(room.confirmed?.player1 && room.confirmed?.player2)) return;
@@ -375,7 +407,7 @@
         const snap = await tx.get(ref);
         if (!snap.exists) return;
         const data = snap.data() || {};
-        if (data.phase !== 'select') return;
+        if (!data.phase?.startsWith('select')) return;
         const confirmed = data.confirmed || {};
         if (!(confirmed.player1 && confirmed.player2)) return;
         tx.update(ref, { phase: 'battle', updatedAt: serverTs() });
