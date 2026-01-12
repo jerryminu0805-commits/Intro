@@ -1164,15 +1164,18 @@ function renderFarPvpSkillScreen(playerKey) {
   const characterId = farPvpState[playerKey].currentCharacter;
   const character = characterData[characterId];
 
+  const layout = document.createElement('div');
+  layout.className = 'farpvp-skill-layout';
+
   const left = document.createElement('div');
-  left.className = 'duo-skill-left';
+  left.className = 'farpvp-skill-left';
 
   const tabs = document.createElement('nav');
-  tabs.className = 'duo-character-tabs';
+  tabs.className = 'farpvp-character-tabs';
   ['adora', 'dario', 'karma'].forEach((charId) => {
     const tab = document.createElement('button');
     tab.type = 'button';
-    tab.className = `duo-character-tab${charId === characterId ? ' active' : ''}`;
+    tab.className = `farpvp-character-tab${charId === characterId ? ' active' : ''}`;
     tab.dataset.character = charId;
     tab.textContent = characterData[charId]?.name || charId;
     tab.addEventListener('click', () => {
@@ -1183,7 +1186,7 @@ function renderFarPvpSkillScreen(playerKey) {
   });
 
   const portrait = document.createElement('div');
-  portrait.className = 'duo-portrait-card';
+  portrait.className = 'farpvp-portrait-card';
   const img = document.createElement('img');
   img.src = character?.portrait || '';
   img.alt = `${character?.name || ''} 立绘`;
