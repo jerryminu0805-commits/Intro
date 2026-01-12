@@ -2460,25 +2460,25 @@ body {
   gap: 12px;
 }
 
-.farpvp-skill-board {
+.farpvp-skill-board:not(.duo-skill-board) {
   background: rgba(10, 12, 24, 0.88);
   border-radius: 18px;
   padding: 24px;
   min-height: 520px;
 }
 
-.farpvp-skill-header {
+.farpvp-skill-header:not(.duo-skill-header) {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
 
-.farpvp-skill-content {
+.farpvp-skill-content:not(.duo-skill-content) {
   min-height: 360px;
 }
 
-.farpvp-player-confirm {
+.farpvp-player-confirm:not(.duo-player-confirm) {
   margin-top: 16px;
   background: linear-gradient(135deg, #4edc92, #2b9f76);
   border: none;
