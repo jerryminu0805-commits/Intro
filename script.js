@@ -1189,9 +1189,6 @@ function renderFarPvpSkillScreen(playerKey) {
   img.alt = `${character?.name || ''} 立绘`;
   portrait.appendChild(img);
 
-  const slotsContainer = document.createElement('div');
-  slotsContainer.className = 'skill-slots-container';
-
   const slotColors = [
     { color: 'green', label: '绿色', limit: 1 },
     { color: 'blue', label: '蓝色', limit: 1 },
@@ -1202,62 +1199,111 @@ function renderFarPvpSkillScreen(playerKey) {
     { color: 'orange', label: '橙色', limit: 2 },
   ];
 
+  const slotsContainer = document.createElement('div');
+  slotsContainer.className = 'skill-slots-container';
+
+  const selectedSkills = farPvpState[playerKey].selections[characterId];
+  const characterSkills = skillLibrary[characterId] || [];
+
   slotColors.forEach(({ color, label, limit }) => {
-    const section = document.createElement('div');
-    section.className = 'skill-selection-section';
-    section.innerHTML = `<h4>${label}技能</h4>`;
+    const slotGroup = document.createElement('div');
+    slotGroup.className = 'skill-slot-group';
+
+    const slotHeader = document.createElement('div');
+    slotHeader.className = 'skill-slot-header';
+    slotHeader.innerHTML = `<span class="skill-badge skill-${color}">${label}</span> <span class="slot-limit">(最多 ${limit} 个)</span>`;
+    slotGroup.appendChild(slotHeader);
 
     const slots = document.createElement('div');
     slots.className = 'skill-slots';
+
     for (let i = 0; i < limit; i += 1) {
       const slot = document.createElement('div');
-      slot.className = `skill-slot ${color}`;
+      slot.className = 'skill-slot';
+      slot.dataset.character = characterId;
       slot.dataset.color = color;
-      slot.dataset.index = i.toString();
-      const selected = farPvpState[playerKey].selections[characterId][color];
-      const skillId = color === 'orange' ? selected[i] : selected;
-      if (skillId) {
-        const skill = findSkillById(skillId, characterId);
-        if (skill) {
-          const card = document.createElement('div');
-          card.className = 'skill-card';
-          card.dataset.skillId = skill.id;
-          card.innerHTML = `<strong>${skill.name}</strong><span>${skill.cost}</span>`;
-          slot.appendChild(card);
-        }
+      slot.dataset.slotIndex = i;
+
+      let selectedSkill = null;
+      if (color === 'orange') {
+        const skillId = selectedSkills.orange[i];
+        selectedSkill = skillId ? characterSkills.find((s) => s.id === skillId) : null;
+      } else {
+        const skillId = selectedSkills[color];
+        selectedSkill = skillId ? characterSkills.find((s) => s.id === skillId) : null;
       }
+
+      if (selectedSkill) {
+        const skillCard = createSkillCard(selectedSkill, true);
+        slot.appendChild(skillCard);
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'empty-skill-slot';
+        empty.textContent = '拖放技能到此处';
+        slot.appendChild(empty);
+      }
+
       slots.appendChild(slot);
     }
 
-    section.appendChild(slots);
-    slotsContainer.appendChild(section);
+    slotGroup.appendChild(slots);
+    slotsContainer.appendChild(slotGroup);
   });
 
   left.appendChild(tabs);
   left.appendChild(portrait);
+  left.appendChild(slotsContainer);
 
   const right = document.createElement('div');
   right.className = 'duo-skill-right';
 
-  const skillList = document.createElement('div');
-  skillList.className = 'skill-selection-list';
-  (skillLibrary[characterId] || []).forEach((skill) => {
-    const card = document.createElement('div');
-    card.className = `skill-card draggable ${skill.color}`;
-    card.setAttribute('draggable', 'true');
-    card.dataset.skillId = skill.id;
-    card.dataset.color = skill.color;
-    card.innerHTML = `<strong>${skill.name}</strong><span>${skill.cost}</span><p>${skill.description || ''}</p>`;
-    skillList.appendChild(card);
+  const libraryContainer = document.createElement('div');
+  libraryContainer.className = 'skill-library-container';
+
+  const libraryHeader = document.createElement('h4');
+  libraryHeader.textContent = '技能库';
+  libraryContainer.appendChild(libraryHeader);
+
+  const skillsByColor = {};
+  characterSkills.forEach((skill) => {
+    if (!skillsByColor[skill.color]) {
+      skillsByColor[skill.color] = [];
+    }
+    skillsByColor[skill.color].push(skill);
   });
 
-  right.appendChild(skillList);
+  const colorLabels = {
+    green: '绿色', blue: '蓝色', pink: '粉色',
+    white: '白色', red: '红色', purple: '紫色', orange: '橙色', gray: '灰色',
+  };
+
+  Object.entries(skillsByColor).forEach(([color, skills]) => {
+    const colorGroup = document.createElement('div');
+    colorGroup.className = 'skill-color-group';
+
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'skill-color-header';
+    groupHeader.innerHTML = `<span class="skill-badge skill-${color}">${colorLabels[color] || color}</span>`;
+    colorGroup.appendChild(groupHeader);
+
+    const skillsList = document.createElement('div');
+    skillsList.className = 'skills-list';
+
+    skills.forEach((skill) => {
+      const skillCard = createSkillCard(skill, false);
+      skillsList.appendChild(skillCard);
+    });
+
+    colorGroup.appendChild(skillsList);
+    libraryContainer.appendChild(colorGroup);
+  });
+
+  right.appendChild(libraryContainer);
 
   content.appendChild(left);
-  content.appendChild(slotsContainer);
   content.appendChild(right);
 
-  enableFarPvpSkillDrag(playerKey);
+  setupFarPvpSkillSelectionInteractions(content, playerKey, characterId);
   updateFarPvpWaitOverlay(playerKey);
 }
 
@@ -1590,6 +1636,92 @@ function setupDuoSkillSelectionInteractions(container, playerKey, characterId) {
       dropSuccessful = true;
       showToast(`技能已选择: ${skill.name}`);
       renderDuoSkillScreen(playerKey);
+    });
+  });
+}
+
+function setupFarPvpSkillSelectionInteractions(container, playerKey, characterId) {
+  let draggedSkillId = null;
+  let draggedFromSlot = null;
+  let dropSuccessful = false;
+
+  const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
+  const isLocalPlayer = role === playerKey;
+
+  container.querySelectorAll('.skill-card').forEach((card) => {
+    card.addEventListener('dragstart', (event) => {
+      if (!isLocalPlayer) {
+        event.preventDefault();
+        return;
+      }
+      draggedSkillId = card.dataset.skillId;
+      draggedFromSlot = card.closest('.skill-slot');
+      dropSuccessful = false;
+      card.classList.add('dragging');
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      if (draggedFromSlot && !dropSuccessful) {
+        const fromColor = draggedFromSlot.dataset.color;
+        const slotIndex = parseInt(draggedFromSlot.dataset.slotIndex, 10);
+        unselectFarPvpSkill(playerKey, characterId, draggedSkillId, fromColor, slotIndex);
+        showToast('技能已取消选择');
+        renderFarPvpSkillScreen(playerKey);
+      }
+      draggedSkillId = null;
+      draggedFromSlot = null;
+      dropSuccessful = false;
+    });
+
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const skill = findSkillById(card.dataset.skillId, characterId);
+      if (skill) {
+        showSkillDescription(skill, e.pageX, e.pageY);
+      }
+    });
+  });
+
+  container.querySelectorAll('.skill-slot').forEach((slot) => {
+    slot.addEventListener('dragover', (e) => {
+      if (!isLocalPlayer) return;
+      e.preventDefault();
+      slot.classList.add('drag-over');
+    });
+
+    slot.addEventListener('dragleave', () => {
+      slot.classList.remove('drag-over');
+    });
+
+    slot.addEventListener('drop', (e) => {
+      if (!isLocalPlayer) return;
+      e.preventDefault();
+      slot.classList.remove('drag-over');
+
+      const slotColor = slot.dataset.color;
+      const slotIndex = parseInt(slot.dataset.slotIndex, 10);
+      const skill = findSkillById(draggedSkillId, characterId);
+      if (!skill) return;
+
+      if (skill.color !== slotColor) {
+        const colorLabels = {
+          green: '绿色', blue: '蓝色', pink: '粉色',
+          white: '白色', red: '红色', purple: '紫色', orange: '橙色', gray: '灰色',
+        };
+        showToast(`技能颜色不匹配！此槽位只能放置${colorLabels[slotColor] || slotColor}技能`);
+        return;
+      }
+
+      const existing = slot.querySelector('.skill-card');
+      if (existing) {
+        unselectFarPvpSkill(playerKey, characterId, existing.dataset.skillId, slotColor, slotIndex);
+      }
+
+      selectFarPvpSkill(playerKey, characterId, draggedSkillId, slotColor, slotIndex);
+      dropSuccessful = true;
+      showToast(`技能已选择: ${skill.name}`);
+      renderFarPvpSkillScreen(playerKey);
     });
   });
 }
@@ -5076,7 +5208,8 @@ function bindFarPvpMode() {
           saveFarPvpRoom(room);
           farPvpState.room = room;
         }
-        transitionTo('farpvp-player2');
+        updateFarPvpWaitOverlay('player1');
+        showToast('已提交，等待对方选择。');
         return;
       }
       if (playerKey === 'player2') {
