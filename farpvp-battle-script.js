@@ -129,6 +129,11 @@ const battleSync = {
   lastResolvedRound: null,
 };
 
+const rollVisualState = {
+  player1: null,
+  player2: null,
+};
+
 const cameraState = {
   x: 0,
   y: 0,
@@ -2000,6 +2005,28 @@ function applyRollBoxValue(playerKey, value){
   if(button) button.disabled = rollState.rolling[playerKey] || (value !== null && value !== undefined);
 }
 
+function animateRollToValue(playerKey, finalValue){
+  const box = document.querySelector(`.rollBox[data-player="${playerKey}"]`);
+  if(!box) return;
+  const start = performance.now();
+  let lastUpdate = start;
+  const tick = (now) => {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / 900, 1);
+    const interval = 40 + progress * 140;
+    if(now - lastUpdate >= interval){
+      box.textContent = Math.floor(Math.random() * 11);
+      lastUpdate = now;
+    }
+    if(progress < 1){
+      requestAnimationFrame(tick);
+    } else {
+      box.textContent = finalValue;
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
 function syncRollStateFromRoom(room){
   if(!room) return;
   const battle = room.battle || {};
@@ -2008,6 +2035,8 @@ function syncRollStateFromRoom(room){
   if(rollRound !== battleSync.rollRound){
     battleSync.rollRound = rollRound;
     battleSync.lastResolvedRound = null;
+    rollVisualState.player1 = null;
+    rollVisualState.player2 = null;
     resetRollState();
     showRollOverlay();
     setInteractionLocked(true);
@@ -2015,6 +2044,12 @@ function syncRollStateFromRoom(room){
 
   ['player1', 'player2'].forEach((key)=>{
     const value = (typeof rolls[key] === 'number') ? rolls[key] : null;
+    const prevVisual = rollVisualState[key];
+    const isLocal = key === localRole;
+    if(value !== null && prevVisual !== value && !rollState.rolling[key] && !isLocal){
+      animateRollToValue(key, value);
+    }
+    rollVisualState[key] = value;
     rollState.results[key] = value;
     if(value !== null){
       rollState.rolling[key] = false;
@@ -2062,6 +2097,8 @@ function resetRollState(){
   rollState.results.player2 = null;
   rollState.rolling.player1 = false;
   rollState.rolling.player2 = false;
+  rollVisualState.player1 = null;
+  rollVisualState.player2 = null;
   document.querySelectorAll('.rollBox').forEach((box) => {
     box.textContent = '?';
   });
