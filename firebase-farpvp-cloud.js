@@ -38,6 +38,9 @@
     moveSlot: null,
     startMatch: null,
     submitSelections: null,
+    submitBattleRoll: null,
+    resetBattleRoll: null,
+    submitBattleState: null,
     closeRoom: null,
     isHostRoom: null,
   };
@@ -100,6 +103,7 @@
       confirmed: data.confirmed || { player1: false, player2: false },
       phase: data.phase || 'lobby',
       selections: data.selections || null,
+      battle: data.battle || null,
       hostUid: data.hostUid || null,
       updatedAt: data.updatedAt || null,
       createdAt: data.createdAt || null,
@@ -249,6 +253,7 @@
       confirmed: { player1: false, player2: false },
       phase: 'lobby',
       selections: null,
+      battle: { rollRound: 0, rolls: { player1: null, player2: null } },
       hostUid: uid,
       createdAt: serverTs(),
       updatedAt: serverTs(),
@@ -340,6 +345,7 @@
         phase: 'select-player1',
         confirmed: { player1: false, player2: false },
         selections: null,
+        battle: { rollRound: 0, rolls: { player1: null, player2: null } },
         updatedAt: serverTs(),
       });
     });
@@ -379,6 +385,7 @@
           selections: selectionsPayload,
           confirmed,
           phase: 'battle',
+          battle: { rollRound: 0, rolls: { player1: null, player2: null } },
           updatedAt: serverTs(),
         });
         return;
@@ -393,6 +400,69 @@
     await ensureAnonAuth();
     const ref = roomsCol.doc(roomId);
     await ref.set({ phase: 'closed', updatedAt: serverTs() }, { merge: true });
+  };
+
+  api.submitBattleRoll = async function submitBattleRoll(roomId, slot, value, rollRound) {
+    if (!roomId || !slot || typeof value !== 'number') return;
+    await ensureAnonAuth();
+    const ref = roomsCol.doc(roomId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('房间已不存在。');
+      const data = snap.data() || {};
+      if (data.phase !== 'battle') throw new Error('当前不在战斗阶段。');
+      const battle = data.battle || { rollRound: 0, rolls: {} };
+      const round = typeof battle.rollRound === 'number' ? battle.rollRound : 0;
+      if (typeof rollRound === 'number' && rollRound !== round) return;
+      const rolls = battle.rolls || {};
+      rolls[slot] = value;
+      tx.update(ref, {
+        battle: { rollRound: round, rolls },
+        updatedAt: serverTs(),
+      });
+    });
+  };
+
+  api.resetBattleRoll = async function resetBattleRoll(roomId, rollRound) {
+    if (!roomId) return;
+    await ensureAnonAuth();
+    const ref = roomsCol.doc(roomId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('房间已不存在。');
+      const data = snap.data() || {};
+      if (data.phase !== 'battle') throw new Error('当前不在战斗阶段。');
+      const battle = data.battle || { rollRound: 0, rolls: {} };
+      const currentRound = typeof battle.rollRound === 'number' ? battle.rollRound : 0;
+      if (typeof rollRound === 'number' && rollRound !== currentRound) return;
+      tx.update(ref, {
+        battle: {
+          rollRound: currentRound + 1,
+          rolls: { player1: null, player2: null },
+        },
+        updatedAt: serverTs(),
+      });
+    });
+  };
+
+  api.submitBattleState = async function submitBattleState(roomId, statePayload) {
+    if (!roomId || !statePayload) return;
+    await ensureAnonAuth();
+    const ref = roomsCol.doc(roomId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('房间已不存在。');
+      const data = snap.data() || {};
+      if (data.phase !== 'battle') throw new Error('当前不在战斗阶段。');
+      const battle = data.battle || {};
+      tx.update(ref, {
+        battle: {
+          ...battle,
+          state: statePayload,
+        },
+        updatedAt: serverTs(),
+      });
+    });
   };
 
   // Helper for host: advance to battle once both confirmed.

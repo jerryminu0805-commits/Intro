@@ -42,6 +42,8 @@ const DEBUG_AI = false;
 function aiLog(u,msg){ if(DEBUG_AI) appendLog(`[AI] ${u.name}: ${msg}`); }
 
 const LOCAL_ROLE_KEY = 'gwdemo_farpvp_role';
+const LOCAL_ROOM_KEY = 'gwdemo_farpvp_room';
+const LOCAL_HOST_KEY = 'gwdemo_farpvp_host';
 const localRole = localStorage.getItem(LOCAL_ROLE_KEY) || 'player1';
 const localSide = localRole === 'player2' ? 'enemy' : 'player';
 function isLocalTurn(){
@@ -116,6 +118,23 @@ const rollState = {
     player1: false,
     player2: false,
   },
+};
+
+const battleSync = {
+  active: false,
+  roomId: null,
+  cloud: null,
+  unsub: null,
+  rollRound: 0,
+  lastResolvedRound: null,
+  stateVersion: 0,
+  lastAppliedStateVersion: 0,
+  applyingRemote: false,
+};
+
+const rollVisualState = {
+  player1: null,
+  player2: null,
 };
 
 const cameraState = {
@@ -1975,11 +1994,218 @@ function startBattleBGM(){
   }
 }
 
+function getBattleCloud(){
+  const cloud = window.GWFarPvpCloud;
+  if (!cloud) return null;
+  if (typeof cloud.subscribeRoom === 'function') return cloud;
+  return cloud && cloud.enabled ? cloud : null;
+}
+
+function applyRollBoxValue(playerKey, value){
+  const box = document.querySelector(`.rollBox[data-player="${playerKey}"]`);
+  if(box) box.textContent = (value === null || value === undefined) ? '?' : value;
+  const button = document.querySelector(`.rollBtn[data-player="${playerKey}"]`);
+  if(button) button.disabled = rollState.rolling[playerKey] || (value !== null && value !== undefined);
+}
+
+function animateRollToValue(playerKey, finalValue){
+  const box = document.querySelector(`.rollBox[data-player="${playerKey}"]`);
+  if(!box) return;
+  const start = performance.now();
+  let lastUpdate = start;
+  const tick = (now) => {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / 900, 1);
+    const interval = 40 + progress * 140;
+    if(now - lastUpdate >= interval){
+      box.textContent = Math.floor(Math.random() * 11);
+      lastUpdate = now;
+    }
+    if(progress < 1){
+      requestAnimationFrame(tick);
+    } else {
+      box.textContent = finalValue;
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function syncRollStateFromRoom(room){
+  if(!room) return;
+  const battle = room.battle || {};
+  const rollRound = (typeof battle.rollRound === 'number') ? battle.rollRound : 0;
+  const rolls = battle.rolls || {};
+  if(rollRound !== battleSync.rollRound){
+    battleSync.rollRound = rollRound;
+    battleSync.lastResolvedRound = null;
+    rollVisualState.player1 = null;
+    rollVisualState.player2 = null;
+    resetRollState();
+    showRollOverlay();
+    setInteractionLocked(true);
+  }
+
+  ['player1', 'player2'].forEach((key)=>{
+    const value = (typeof rolls[key] === 'number') ? rolls[key] : null;
+    const prevVisual = rollVisualState[key];
+    const isLocal = key === localRole;
+    if(value !== null && prevVisual !== value && !rollState.rolling[key] && !isLocal){
+      animateRollToValue(key, value);
+    }
+    rollVisualState[key] = value;
+    rollState.results[key] = value;
+    if(value !== null){
+      rollState.rolling[key] = false;
+    }
+    applyRollBoxValue(key, value);
+  });
+
+  const { player1, player2 } = rollState.results;
+  if(player1 !== null && player2 !== null){
+    if(battleSync.lastResolvedRound !== battleSync.rollRound){
+      battleSync.lastResolvedRound = battleSync.rollRound;
+      finalizeRoll();
+    }
+  }
+
+  syncBattleStateFromRoom(room);
+}
+
+function initBattleSync(){
+  const roomId = localStorage.getItem(LOCAL_ROOM_KEY);
+  const cloud = getBattleCloud();
+  if(!roomId || !cloud || typeof cloud.subscribeRoom !== 'function') return;
+  battleSync.active = true;
+  battleSync.roomId = roomId;
+  battleSync.cloud = cloud;
+  battleSync.unsub = cloud.subscribeRoom(roomId, (room) => {
+    if(room) syncRollStateFromRoom(room);
+  });
+}
+
+function submitBattleRoll(playerKey, value){
+  if(!battleSync.active || !battleSync.cloud || !battleSync.roomId) return;
+  if(typeof battleSync.cloud.submitBattleRoll !== 'function') return;
+  battleSync.cloud.submitBattleRoll(battleSync.roomId, playerKey, value, battleSync.rollRound).catch(()=>{});
+}
+
+function requestBattleRollReset(){
+  if(!battleSync.active || !battleSync.cloud || !battleSync.roomId) return;
+  if(typeof battleSync.cloud.resetBattleRoll !== 'function') return;
+  const isHost = localStorage.getItem(LOCAL_HOST_KEY) === 'true';
+  if(!isHost) return;
+  battleSync.cloud.resetBattleRoll(battleSync.roomId, battleSync.rollRound).catch(()=>{});
+}
+
+function captureBattleState(){
+  const unitsState = {};
+  for(const id in units){
+    const u = units[id];
+    if(!u) continue;
+    unitsState[id] = {
+      r: u.r,
+      c: u.c,
+      hp: u.hp,
+      sp: u.sp,
+      facing: u.facing,
+      status: { ...u.status },
+      oppression: u.oppression,
+      _staggerStacks: u._staggerStacks,
+      _spBroken: u._spBroken,
+      _spCrashVuln: u._spCrashVuln,
+      stunThreshold: u.stunThreshold,
+      chainShieldTurns: u.chainShieldTurns,
+      chainShieldRetaliate: u.chainShieldRetaliate,
+      tuskRageStacks: u.tuskRageStacks,
+      _comeback: u._comeback,
+      consecAttacks: u.consecAttacks,
+      actionsThisTurn: u.actionsThisTurn,
+      turnsStarted: u.turnsStarted,
+      dealtStart: u.dealtStart,
+      size: u.size,
+      team: u.team,
+    };
+  }
+  return {
+    actor: localRole,
+    version: battleSync.stateVersion + 1,
+    currentSide,
+    playerSteps,
+    enemySteps,
+    roundsPassed,
+    bonusStepsNextTurn,
+    hazMarkedTargetId,
+    hazTeamCollapsed,
+    units: unitsState,
+  };
+}
+
+function applyBattleState(state){
+  if(!state || !state.units) return;
+  battleSync.applyingRemote = true;
+  currentSide = state.currentSide || currentSide;
+  playerSteps = typeof state.playerSteps === 'number' ? state.playerSteps : playerSteps;
+  enemySteps = typeof state.enemySteps === 'number' ? state.enemySteps : enemySteps;
+  roundsPassed = typeof state.roundsPassed === 'number' ? state.roundsPassed : roundsPassed;
+  bonusStepsNextTurn = state.bonusStepsNextTurn || bonusStepsNextTurn;
+  hazMarkedTargetId = state.hazMarkedTargetId || null;
+  hazTeamCollapsed = !!state.hazTeamCollapsed;
+
+  Object.entries(state.units).forEach(([id, data]) => {
+    const u = units[id];
+    if(!u || !data) return;
+    u.r = data.r;
+    u.c = data.c;
+    u.hp = data.hp;
+    u.sp = data.sp;
+    u.facing = data.facing || u.facing;
+    u.status = { ...u.status, ...(data.status || {}) };
+    u.oppression = !!data.oppression;
+    u._staggerStacks = data._staggerStacks || 0;
+    u._spBroken = !!data._spBroken;
+    u._spCrashVuln = !!data._spCrashVuln;
+    u.stunThreshold = data.stunThreshold || u.stunThreshold;
+    u.chainShieldTurns = data.chainShieldTurns || 0;
+    u.chainShieldRetaliate = data.chainShieldRetaliate || 0;
+    u.tuskRageStacks = data.tuskRageStacks || 0;
+    u._comeback = !!data._comeback;
+    u.consecAttacks = data.consecAttacks || 0;
+    u.actionsThisTurn = data.actionsThisTurn || 0;
+    u.turnsStarted = data.turnsStarted || 0;
+    u.dealtStart = !!data.dealtStart;
+  });
+
+  renderAll();
+  updateStepsUI();
+  battleSync.applyingRemote = false;
+}
+
+function syncBattleStateFromRoom(room){
+  if(!room || !room.battle || !room.battle.state) return;
+  const state = room.battle.state;
+  const version = state.version || 0;
+  if(state.actor === localRole) return;
+  if(version <= battleSync.lastAppliedStateVersion) return;
+  battleSync.lastAppliedStateVersion = version;
+  applyBattleState(state);
+}
+
+function submitBattleState(){
+  if(!battleSync.active || !battleSync.cloud || !battleSync.roomId) return;
+  if(battleSync.applyingRemote) return;
+  if(typeof battleSync.cloud.submitBattleState !== 'function') return;
+  const payload = captureBattleState();
+  battleSync.stateVersion = payload.version;
+  battleSync.cloud.submitBattleState(battleSync.roomId, payload).catch(()=>{});
+}
+
 function resetRollState(){
   rollState.results.player1 = null;
   rollState.results.player2 = null;
   rollState.rolling.player1 = false;
   rollState.rolling.player2 = false;
+  rollVisualState.player1 = null;
+  rollVisualState.player2 = null;
   document.querySelectorAll('.rollBox').forEach((box) => {
     box.textContent = '?';
   });
@@ -2034,16 +2260,23 @@ function finalizeRoll(){
 
   if(player1 === player2){
     appendLog('点数相同，重新摇');
-    setTimeout(() => {
-      resetRollState();
-      showRollOverlay();
-    }, 600);
+    if(battleSync.active){
+      requestBattleRollReset();
+    } else {
+      setTimeout(() => {
+        resetRollState();
+        showRollOverlay();
+      }, 600);
+    }
     return;
   }
 
   const player1Starts = player1 > player2;
   const winnerLabel = player1Starts ? '玩家1' : '玩家2';
   appendLog(`${winnerLabel} 获得先手`);
+  if(battleSync.active){
+    battleSync.lastResolvedRound = battleSync.rollRound;
+  }
   setTimeout(() => {
     hideRollOverlay();
     startBattleBGM();
@@ -2076,6 +2309,7 @@ function handleRoll(playerKey){
   animateRollNumber(box, (value) => {
     rollState.results[playerKey] = value;
     rollState.rolling[playerKey] = false;
+    submitBattleRoll(playerKey, value);
     finalizeRoll();
   });
 }
@@ -4727,6 +4961,7 @@ function handleSkillConfirmCell(u, sk, aimCell){
   clearSkillAiming();
   renderAll();
   showSelected(u);
+  submitBattleState();
 
   if(u.id==='karma' && sk.name!=='沙包大的拳头'){
     if(u.consecAttacks>0) appendLog(`${u.name} 的连击被打断（使用其他技能）`);
@@ -4774,6 +5009,7 @@ function onCellClick(r,c){
   if(sel.id==='karma' && sel.consecAttacks>0){ appendLog(`${sel.name} 的连击被打断（移动）`); sel.consecAttacks=0; }
   unitActed(sel);
   clearHighlights(); renderAll(); showSelected(sel);
+  submitBattleState();
   setTimeout(()=>{ checkEndOfTurn(); }, 160);
 }
 function showSelected(u){
@@ -5096,6 +5332,7 @@ function finishEnemyTurn(){
     applyParalysisAtTurnStart('player');
     processUnitsTurnStart('player');
     renderAll();
+    submitBattleState();
   }, 300);
 }
 function endTurn(){
@@ -5104,6 +5341,7 @@ function endTurn(){
     appendLog('玩家结束回合');
     playerSteps = 0;
     updateStepsUI();
+    submitBattleState();
     checkEndOfTurn();
   } else {
     appendLog('敌方结束回合');
@@ -5806,5 +6044,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   applyParalysisAtTurnStart('player');
   processUnitsTurnStart('player');
   updateStepsUI();
+  initBattleSync();
   setTimeout(()=> startRollStage(), 80);
 });

@@ -2040,6 +2040,17 @@ body {
   gap: 12px;
 }
 
+.skill-card.is-selected {
+  opacity: 0.4;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
+.skill-flyer {
+  transition: transform 0.35s ease, opacity 0.35s ease;
+  pointer-events: none;
+}
+
 /* Skill cards */
 .skill-card {
   background: rgba(0, 0, 0, 0.4);
@@ -2460,34 +2471,6 @@ body {
   gap: 12px;
 }
 
-.farpvp-skill-board {
-  background: rgba(10, 12, 24, 0.88);
-  border-radius: 18px;
-  padding: 24px;
-  min-height: 520px;
-}
-
-.farpvp-skill-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.farpvp-skill-content {
-  min-height: 360px;
-}
-
-.farpvp-player-confirm {
-  margin-top: 16px;
-  background: linear-gradient(135deg, #4edc92, #2b9f76);
-  border: none;
-  border-radius: 12px;
-  padding: 10px 20px;
-  font-weight: 600;
-  color: #0b121d;
-  cursor: pointer;
-}
 
 .farpvp-wait-overlay {
   position: fixed;
