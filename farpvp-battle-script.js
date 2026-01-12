@@ -127,6 +127,9 @@ const battleSync = {
   unsub: null,
   rollRound: 0,
   lastResolvedRound: null,
+  stateVersion: 0,
+  lastAppliedStateVersion: 0,
+  applyingRemote: false,
 };
 
 const rollVisualState = {
@@ -2064,6 +2067,8 @@ function syncRollStateFromRoom(room){
       finalizeRoll();
     }
   }
+
+  syncBattleStateFromRoom(room);
 }
 
 function initBattleSync(){
@@ -2090,6 +2095,108 @@ function requestBattleRollReset(){
   const isHost = localStorage.getItem(LOCAL_HOST_KEY) === 'true';
   if(!isHost) return;
   battleSync.cloud.resetBattleRoll(battleSync.roomId, battleSync.rollRound).catch(()=>{});
+}
+
+function captureBattleState(){
+  const unitsState = {};
+  for(const id in units){
+    const u = units[id];
+    if(!u) continue;
+    unitsState[id] = {
+      r: u.r,
+      c: u.c,
+      hp: u.hp,
+      sp: u.sp,
+      facing: u.facing,
+      status: { ...u.status },
+      oppression: u.oppression,
+      _staggerStacks: u._staggerStacks,
+      _spBroken: u._spBroken,
+      _spCrashVuln: u._spCrashVuln,
+      stunThreshold: u.stunThreshold,
+      chainShieldTurns: u.chainShieldTurns,
+      chainShieldRetaliate: u.chainShieldRetaliate,
+      tuskRageStacks: u.tuskRageStacks,
+      _comeback: u._comeback,
+      consecAttacks: u.consecAttacks,
+      actionsThisTurn: u.actionsThisTurn,
+      turnsStarted: u.turnsStarted,
+      dealtStart: u.dealtStart,
+      size: u.size,
+      team: u.team,
+    };
+  }
+  return {
+    actor: localRole,
+    version: battleSync.stateVersion + 1,
+    currentSide,
+    playerSteps,
+    enemySteps,
+    roundsPassed,
+    bonusStepsNextTurn,
+    hazMarkedTargetId,
+    hazTeamCollapsed,
+    units: unitsState,
+  };
+}
+
+function applyBattleState(state){
+  if(!state || !state.units) return;
+  battleSync.applyingRemote = true;
+  currentSide = state.currentSide || currentSide;
+  playerSteps = typeof state.playerSteps === 'number' ? state.playerSteps : playerSteps;
+  enemySteps = typeof state.enemySteps === 'number' ? state.enemySteps : enemySteps;
+  roundsPassed = typeof state.roundsPassed === 'number' ? state.roundsPassed : roundsPassed;
+  bonusStepsNextTurn = state.bonusStepsNextTurn || bonusStepsNextTurn;
+  hazMarkedTargetId = state.hazMarkedTargetId || null;
+  hazTeamCollapsed = !!state.hazTeamCollapsed;
+
+  Object.entries(state.units).forEach(([id, data]) => {
+    const u = units[id];
+    if(!u || !data) return;
+    u.r = data.r;
+    u.c = data.c;
+    u.hp = data.hp;
+    u.sp = data.sp;
+    u.facing = data.facing || u.facing;
+    u.status = { ...u.status, ...(data.status || {}) };
+    u.oppression = !!data.oppression;
+    u._staggerStacks = data._staggerStacks || 0;
+    u._spBroken = !!data._spBroken;
+    u._spCrashVuln = !!data._spCrashVuln;
+    u.stunThreshold = data.stunThreshold || u.stunThreshold;
+    u.chainShieldTurns = data.chainShieldTurns || 0;
+    u.chainShieldRetaliate = data.chainShieldRetaliate || 0;
+    u.tuskRageStacks = data.tuskRageStacks || 0;
+    u._comeback = !!data._comeback;
+    u.consecAttacks = data.consecAttacks || 0;
+    u.actionsThisTurn = data.actionsThisTurn || 0;
+    u.turnsStarted = data.turnsStarted || 0;
+    u.dealtStart = !!data.dealtStart;
+  });
+
+  renderAll();
+  updateStepsUI();
+  battleSync.applyingRemote = false;
+}
+
+function syncBattleStateFromRoom(room){
+  if(!room || !room.battle || !room.battle.state) return;
+  const state = room.battle.state;
+  const version = state.version || 0;
+  if(state.actor === localRole) return;
+  if(version <= battleSync.lastAppliedStateVersion) return;
+  battleSync.lastAppliedStateVersion = version;
+  applyBattleState(state);
+}
+
+function submitBattleState(){
+  if(!battleSync.active || !battleSync.cloud || !battleSync.roomId) return;
+  if(battleSync.applyingRemote) return;
+  if(typeof battleSync.cloud.submitBattleState !== 'function') return;
+  const payload = captureBattleState();
+  battleSync.stateVersion = payload.version;
+  battleSync.cloud.submitBattleState(battleSync.roomId, payload).catch(()=>{});
 }
 
 function resetRollState(){
@@ -4854,6 +4961,7 @@ function handleSkillConfirmCell(u, sk, aimCell){
   clearSkillAiming();
   renderAll();
   showSelected(u);
+  submitBattleState();
 
   if(u.id==='karma' && sk.name!=='沙包大的拳头'){
     if(u.consecAttacks>0) appendLog(`${u.name} 的连击被打断（使用其他技能）`);
@@ -4901,6 +5009,7 @@ function onCellClick(r,c){
   if(sel.id==='karma' && sel.consecAttacks>0){ appendLog(`${sel.name} 的连击被打断（移动）`); sel.consecAttacks=0; }
   unitActed(sel);
   clearHighlights(); renderAll(); showSelected(sel);
+  submitBattleState();
   setTimeout(()=>{ checkEndOfTurn(); }, 160);
 }
 function showSelected(u){
@@ -5223,6 +5332,7 @@ function finishEnemyTurn(){
     applyParalysisAtTurnStart('player');
     processUnitsTurnStart('player');
     renderAll();
+    submitBattleState();
   }, 300);
 }
 function endTurn(){
@@ -5231,6 +5341,7 @@ function endTurn(){
     appendLog('玩家结束回合');
     playerSteps = 0;
     updateStepsUI();
+    submitBattleState();
     checkEndOfTurn();
   } else {
     appendLog('敌方结束回合');

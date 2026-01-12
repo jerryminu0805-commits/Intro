@@ -1294,6 +1294,9 @@ function renderFarPvpSkillScreen(playerKey) {
 
     skills.forEach((skill) => {
       const skillCard = createSkillCard(skill, false);
+      if (isFarPvpSkillSelected(playerKey, characterId, skill.id)) {
+        skillCard.classList.add('is-selected');
+      }
       skillsList.appendChild(skillCard);
     });
 
@@ -1308,6 +1311,17 @@ function renderFarPvpSkillScreen(playerKey) {
 
   setupFarPvpSkillSelectionInteractions(content, playerKey, characterId);
   updateFarPvpWaitOverlay(playerKey);
+}
+
+function isFarPvpSkillSelected(playerKey, characterId, skillId) {
+  const selected = farPvpState[playerKey]?.selections?.[characterId];
+  if (!selected) return false;
+  return Object.entries(selected).some(([color, value]) => {
+    if (color === 'orange') {
+      return Array.isArray(value) && value.includes(skillId);
+    }
+    return value === skillId;
+  });
 }
 
 function updateFarPvpWaitOverlay(playerKey) {
@@ -1657,6 +1671,10 @@ function setupFarPvpSkillSelectionInteractions(container, playerKey, characterId
         event.preventDefault();
         return;
       }
+      if (card.classList.contains('is-selected')) {
+        event.preventDefault();
+        return;
+      }
       draggedSkillId = card.dataset.skillId;
       draggedFromSlot = card.closest('.skill-slot');
       dropSuccessful = false;
@@ -1683,6 +1701,23 @@ function setupFarPvpSkillSelectionInteractions(container, playerKey, characterId
       if (skill) {
         showSkillDescription(skill, e.pageX, e.pageY);
       }
+    });
+
+    card.addEventListener('click', () => {
+      if (!isLocalPlayer) return;
+      if (card.classList.contains('is-selected')) return;
+      const skill = findSkillById(card.dataset.skillId, characterId);
+      if (!skill) return;
+      const targetSlot = findFarPvpAvailableSlot(container, skill.color);
+      if (!targetSlot) {
+        showToast('对应颜色槽位已满');
+        return;
+      }
+      animateSkillToSlot(card, targetSlot);
+      dropSuccessful = true;
+      selectFarPvpSkill(playerKey, characterId, skill.id, skill.color, parseInt(targetSlot.dataset.slotIndex, 10));
+      showToast(`技能已选择: ${skill.name}`);
+      renderFarPvpSkillScreen(playerKey);
     });
   });
 
@@ -1727,6 +1762,34 @@ function setupFarPvpSkillSelectionInteractions(container, playerKey, characterId
       renderFarPvpSkillScreen(playerKey);
     });
   });
+}
+
+function findFarPvpAvailableSlot(container, color) {
+  const slots = Array.from(container.querySelectorAll(`.skill-slot[data-color="${color}"]`));
+  for (const slot of slots) {
+    if (!slot.querySelector('.skill-card')) return slot;
+  }
+  return null;
+}
+
+function animateSkillToSlot(card, slot) {
+  if (!card || !slot) return;
+  const from = card.getBoundingClientRect();
+  const to = slot.getBoundingClientRect();
+  const flyer = card.cloneNode(true);
+  flyer.classList.add('skill-flyer');
+  flyer.style.position = 'fixed';
+  flyer.style.left = `${from.left}px`;
+  flyer.style.top = `${from.top}px`;
+  flyer.style.width = `${from.width}px`;
+  flyer.style.height = `${from.height}px`;
+  flyer.style.zIndex = '9999';
+  document.body.appendChild(flyer);
+  requestAnimationFrame(() => {
+    flyer.style.transform = `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(0.85)`;
+    flyer.style.opacity = '0';
+  });
+  flyer.addEventListener('transitionend', () => flyer.remove(), { once: true });
 }
 
 function showToast(message) {

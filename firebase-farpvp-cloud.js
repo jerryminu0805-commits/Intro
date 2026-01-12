@@ -40,6 +40,7 @@
     submitSelections: null,
     submitBattleRoll: null,
     resetBattleRoll: null,
+    submitBattleState: null,
     closeRoom: null,
     isHostRoom: null,
   };
@@ -438,6 +439,26 @@
         battle: {
           rollRound: currentRound + 1,
           rolls: { player1: null, player2: null },
+        },
+        updatedAt: serverTs(),
+      });
+    });
+  };
+
+  api.submitBattleState = async function submitBattleState(roomId, statePayload) {
+    if (!roomId || !statePayload) return;
+    await ensureAnonAuth();
+    const ref = roomsCol.doc(roomId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error('房间已不存在。');
+      const data = snap.data() || {};
+      if (data.phase !== 'battle') throw new Error('当前不在战斗阶段。');
+      const battle = data.battle || {};
+      tx.update(ref, {
+        battle: {
+          ...battle,
+          state: statePayload,
         },
         updatedAt: serverTs(),
       });
