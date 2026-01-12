@@ -2460,25 +2460,27 @@ body {
   gap: 12px;
 }
 
-.farpvp-skill-board {
+.farpvp-skill-board-pvp {
   background: rgba(10, 12, 24, 0.88);
   border-radius: 18px;
   padding: 24px;
   min-height: 520px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
 }
 
-.farpvp-skill-header {
+.farpvp-skill-header-pvp {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
 
-.farpvp-skill-content {
+.farpvp-skill-content-pvp {
   min-height: 360px;
 }
 
-.farpvp-player-confirm {
+.farpvp-player-confirm-pvp {
   margin-top: 16px;
   background: linear-gradient(135deg, #4edc92, #2b9f76);
   border: none;
@@ -2487,6 +2489,142 @@ body {
   font-weight: 600;
   color: #0b121d;
   cursor: pointer;
+}
+
+.farpvp-player-title-pvp {
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.farpvp-skill-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(280px, 1fr) minmax(320px, 1.2fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.farpvp-skill-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.farpvp-character-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.farpvp-character-tab {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 20, 30, 0.7);
+  color: var(--text-color);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.farpvp-character-tab.active {
+  border-color: #5b8cff;
+  box-shadow: 0 0 12px rgba(91, 140, 255, 0.35);
+}
+
+.farpvp-portrait-card {
+  background: rgba(12, 16, 26, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.farpvp-portrait-card img {
+  width: 100%;
+  max-width: 240px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.45));
+}
+
+.farpvp-selected-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.farpvp-selected-section {
+  background: rgba(14, 18, 28, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.farpvp-selected-title {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.farpvp-selected-list {
+  display: grid;
+  gap: 8px;
+}
+
+.farpvp-selected-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  text-align: center;
+}
+
+.farpvp-skill-library {
+  display: grid;
+  gap: 10px;
+  max-height: 480px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.farpvp-skill-layout .skillCard {
+  background: #131926;
+  border: 1px solid #1d2436;
+  border-left: 6px solid #52c41a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.farpvp-skill-layout .skillCard:hover {
+  transform: translateY(-1px);
+  background: #141c2b;
+}
+
+.farpvp-skill-layout .skillCard.green { border-left-color: #52c41a; }
+.farpvp-skill-layout .skillCard.red { border-left-color: #ff7875; }
+.farpvp-skill-layout .skillCard.blue { border-left-color: #1890ff; }
+.farpvp-skill-layout .skillCard.orange { border-left-color: #fa8c16; }
+.farpvp-skill-layout .skillCard.purple { border-left-color: #9254de; }
+.farpvp-skill-layout .skillCard.white { border-left-color: #d9d9d9; color: #f5f5f5; }
+.farpvp-skill-layout .skillCard.pink { border-left-color: #ff85c0; }
+
+.farpvp-skill-layout .skillCard span {
+  align-self: flex-end;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .farpvp-wait-overlay {

@@ -1164,15 +1164,18 @@ function renderFarPvpSkillScreen(playerKey) {
   const characterId = farPvpState[playerKey].currentCharacter;
   const character = characterData[characterId];
 
+  const layout = document.createElement('div');
+  layout.className = 'farpvp-skill-layout';
+
   const left = document.createElement('div');
-  left.className = 'duo-skill-left';
+  left.className = 'farpvp-skill-left';
 
   const tabs = document.createElement('nav');
-  tabs.className = 'duo-character-tabs';
+  tabs.className = 'farpvp-character-tabs';
   ['adora', 'dario', 'karma'].forEach((charId) => {
     const tab = document.createElement('button');
     tab.type = 'button';
-    tab.className = `duo-character-tab${charId === characterId ? ' active' : ''}`;
+    tab.className = `farpvp-character-tab${charId === characterId ? ' active' : ''}`;
     tab.dataset.character = charId;
     tab.textContent = characterData[charId]?.name || charId;
     tab.addEventListener('click', () => {
@@ -1183,14 +1186,17 @@ function renderFarPvpSkillScreen(playerKey) {
   });
 
   const portrait = document.createElement('div');
-  portrait.className = 'duo-portrait-card';
+  portrait.className = 'farpvp-portrait-card';
   const img = document.createElement('img');
   img.src = character?.portrait || '';
   img.alt = `${character?.name || ''} 立绘`;
   portrait.appendChild(img);
 
-  const slotsContainer = document.createElement('div');
-  slotsContainer.className = 'skill-slots-container';
+  left.appendChild(tabs);
+  left.appendChild(portrait);
+
+  const selectedWrap = document.createElement('div');
+  selectedWrap.className = 'farpvp-selected-skills';
 
   const slotColors = [
     { color: 'green', label: '绿色', limit: 1 },
@@ -1204,60 +1210,84 @@ function renderFarPvpSkillScreen(playerKey) {
 
   slotColors.forEach(({ color, label, limit }) => {
     const section = document.createElement('div');
-    section.className = 'skill-selection-section';
-    section.innerHTML = `<h4>${label}技能</h4>`;
+    section.className = 'farpvp-selected-section';
+    section.innerHTML = `<div class="farpvp-selected-title">${label}技能</div>`;
 
-    const slots = document.createElement('div');
-    slots.className = 'skill-slots';
+    const list = document.createElement('div');
+    list.className = 'farpvp-selected-list';
+
     for (let i = 0; i < limit; i += 1) {
-      const slot = document.createElement('div');
-      slot.className = `skill-slot ${color}`;
-      slot.dataset.color = color;
-      slot.dataset.index = i.toString();
       const selected = farPvpState[playerKey].selections[characterId][color];
       const skillId = color === 'orange' ? selected[i] : selected;
       if (skillId) {
         const skill = findSkillById(skillId, characterId);
         if (skill) {
           const card = document.createElement('div');
-          card.className = 'skill-card';
+          card.className = `skillCard ${skill.color}`;
           card.dataset.skillId = skill.id;
-          card.innerHTML = `<strong>${skill.name}</strong><span>${skill.cost}</span>`;
-          slot.appendChild(card);
+          card.dataset.color = color;
+          card.dataset.index = i.toString();
+          card.innerHTML = `<strong>${skill.name}</strong><div class="small">${skill.description || ''}</div><span>${skill.cost} 步</span>`;
+          card.addEventListener('click', () => {
+            const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
+            if (role !== playerKey) return;
+            unselectFarPvpSkill(playerKey, characterId, skill.id, color, i);
+            renderFarPvpSkillScreen(playerKey);
+          });
+          list.appendChild(card);
         }
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'farpvp-selected-empty';
+        empty.textContent = '点击右侧技能加入';
+        list.appendChild(empty);
       }
-      slots.appendChild(slot);
     }
 
-    section.appendChild(slots);
-    slotsContainer.appendChild(section);
+    section.appendChild(list);
+    selectedWrap.appendChild(section);
   });
 
-  left.appendChild(tabs);
-  left.appendChild(portrait);
+  const library = document.createElement('div');
+  library.className = 'farpvp-skill-library';
 
-  const right = document.createElement('div');
-  right.className = 'duo-skill-right';
-
-  const skillList = document.createElement('div');
-  skillList.className = 'skill-selection-list';
   (skillLibrary[characterId] || []).forEach((skill) => {
     const card = document.createElement('div');
-    card.className = `skill-card draggable ${skill.color}`;
-    card.setAttribute('draggable', 'true');
+    card.className = `skillCard ${skill.color}`;
     card.dataset.skillId = skill.id;
     card.dataset.color = skill.color;
-    card.innerHTML = `<strong>${skill.name}</strong><span>${skill.cost}</span><p>${skill.description || ''}</p>`;
-    skillList.appendChild(card);
+    card.innerHTML = `<strong>${skill.name}</strong><div class="small">${skill.description || ''}</div><span>${skill.cost} 步</span>`;
+    card.addEventListener('click', () => {
+      const role = localStorage.getItem(STORAGE_KEY_FARPVP_ROLE) || 'player1';
+      if (role !== playerKey) return;
+      const slotColor = skill.color;
+      const selected = farPvpState[playerKey].selections[characterId];
+      let slotIndex = 0;
+      if (slotColor === 'orange') {
+        const openIndex = selected.orange.findIndex((slot) => !slot);
+        if (openIndex === -1) {
+          showToast('橙色技能槽已满，请先移除一个。');
+          return;
+        }
+        slotIndex = openIndex;
+      }
+      if (slotColor !== 'orange' && selected[slotColor]) {
+        const existingSkill = findSkillById(selected[slotColor], characterId);
+        if (existingSkill) {
+          unselectFarPvpSkill(playerKey, characterId, existingSkill.id, slotColor, 0);
+        }
+      }
+      selectFarPvpSkill(playerKey, characterId, skill.id, slotColor, slotIndex);
+      renderFarPvpSkillScreen(playerKey);
+    });
+    library.appendChild(card);
   });
 
-  right.appendChild(skillList);
+  layout.appendChild(left);
+  layout.appendChild(selectedWrap);
+  layout.appendChild(library);
+  content.appendChild(layout);
 
-  content.appendChild(left);
-  content.appendChild(slotsContainer);
-  content.appendChild(right);
-
-  enableFarPvpSkillDrag(playerKey);
   updateFarPvpWaitOverlay(playerKey);
 }
 
@@ -5076,7 +5106,8 @@ function bindFarPvpMode() {
           saveFarPvpRoom(room);
           farPvpState.room = room;
         }
-        transitionTo('farpvp-player2');
+        updateFarPvpWaitOverlay('player1');
+        showToast('已提交，等待对方选择。');
         return;
       }
       if (playerKey === 'player2') {
