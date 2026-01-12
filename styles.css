@@ -2460,36 +2460,6 @@ body {
   gap: 12px;
 }
 
-.farpvp-skill-board-pvp {
-  background: rgba(10, 12, 24, 0.88);
-  border-radius: 18px;
-  padding: 24px;
-  min-height: 520px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
-}
-
-.farpvp-skill-header-pvp {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.farpvp-skill-content-pvp {
-  min-height: 360px;
-}
-
-.farpvp-player-confirm-pvp {
-  margin-top: 16px;
-  background: linear-gradient(135deg, #4edc92, #2b9f76);
-  border: none;
-  border-radius: 12px;
-  padding: 10px 20px;
-  font-weight: 600;
-  color: #0b121d;
-  cursor: pointer;
-}
 
 .farpvp-player-title-pvp {
   font-size: 18px;
