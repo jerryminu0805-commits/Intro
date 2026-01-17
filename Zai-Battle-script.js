@@ -163,6 +163,10 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
       dependStacks: 0,           // “依赖”Buff 层数（下一次攻击真实伤害，结算后清空自身SP）
       agileStacks: 0,            // "灵活"Buff 层数（让敌方30%几率miss，miss消耗一层）
       affirmationStacks: 0,      // "肯定"Buff 层数（免疫一次SP伤害，多阶段攻击全阶段免疫，消耗一层）
+      painAmpStacks: 0,          // “痛觉放大”层数（每层受到伤害+10%，上限5层）
+      tetanusStacks: 0,          // “破伤风”层数（回合开始造成真实伤害）
+      tetanusTick: 0,            // 破伤风计数（每3回合衰减1层痛觉放大）
+      lockedPreyId: null,        // “锁定猎物”目标 id
     },
     dmgDone: 0,
     skillPool: [],
@@ -1854,13 +1858,20 @@ function handleSpCrashIfNeeded(u){
     if(!u._spCrashVuln){
       u._spCrashVuln = true;
       showStatusFloat(u,'SP崩溃易伤',{type:'debuff', offsetY:-88});
-      appendLog(`${u.name} 处于 SP 崩溃易伤：受到的伤害翻倍，直到眩晕解除且 SP 恢复`);
+      if(u.id === 'zai'){
+        appendLog(`${u.name} 处于 SP 崩溃易伤：受到的伤害提高 50%，直到眩晕解除且 SP 恢复`);
+      } else {
+        appendLog(`${u.name} 处于 SP 崩溃易伤：受到的伤害翻倍，直到眩晕解除且 SP 恢复`);
+      }
     }
     applyStunOrStack(u, 1, {bypass:true, reason:'SP崩溃'});
     if(u.side==='player'){ playerSteps = Math.max(0, playerSteps - 1); } else { enemySteps = Math.max(0, enemySteps - 1); }
     const restored = Math.floor(u.maxSp * u.restoreOnZeroPct);
     u.spPendingRestore = Math.max(u.spPendingRestore ?? 0, restored);
     appendLog(`${u.name} 的 SP 崩溃：下个己方回合自动恢复至 ${u.spPendingRestore}`);
+    if(u.id === 'zai'){
+      damageUnit(u.id, 20, 0, `${u.name} SP 崩溃：自伤 20 真伤`, null, {trueDamage:true});
+    }
   }
   if(u.sp > 0 && u._spBroken) u._spBroken = false;
   if(u.sp > 0){
@@ -1916,6 +1927,9 @@ function calcOutgoingDamage(attacker, baseDmg, target, skillName){
   if(attacker.team==='seven'){ dmg = Math.max(0, dmg - 5); }
   if(attacker.id==='haz' && attacker.hp <= attacker.maxHp/2){ dmg = Math.round(dmg * 1.3); }
   if(attacker.id==='haz' && attacker._comeback) dmg = Math.round(dmg * 1.10);
+  if(attacker.id==='zai' && target && attacker.status && attacker.status.lockedPreyId === target.id){
+    dmg = Math.round(dmg * 1.15);
+  }
 
   if(hasDeepBreathPassive(attacker)){
     dmg = Math.round(dmg * 1.10);
@@ -2024,10 +2038,29 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
     }
   }
 
+  if(!trueDamage && u.id === 'zai' && source){
+    const levelGap = Math.max(0, u.level - source.level);
+    if(levelGap > 0){
+      const resist = Math.min(0.6, levelGap * 0.002);
+      hpDmg = Math.round(hpDmg * (1 - resist));
+    }
+  }
+
+  if(u.status && u.status.painAmpStacks > 0){
+    const amp = Math.min(5, u.status.painAmpStacks);
+    hpDmg = Math.round(hpDmg * (1 + amp * 0.1));
+  }
+
+  if(source && source.id === 'zai' && source.status && source.status.lockedPreyId === u.id){
+    spDmg += 10;
+    appendLog(`锁定猎物：宰对 ${u.name} 追加 10 SP 伤害`);
+  }
+
   if(u._spCrashVuln && (hpDmg>0 || spDmg>0)){
-    hpDmg = Math.round(hpDmg * 2);
-    spDmg = Math.round(spDmg * 2);
-    appendLog(`${u.name} 因 SP 崩溃眩晕承受双倍伤害！`);
+    const crashMul = u.id === 'zai' ? 1.5 : 2;
+    hpDmg = Math.round(hpDmg * crashMul);
+    spDmg = Math.round(spDmg * crashMul);
+    appendLog(`${u.name} 因 SP 崩溃眩晕承受 ${crashMul} 倍伤害！`);
   }
 
   const prevHp = u.hp;
@@ -4069,6 +4102,8 @@ function summarizeNegatives(u){
   if(u.status.affirmationStacks>0) parts.push(`肯定x${u.status.affirmationStacks}`);
   if(u.status.mockeryStacks>0) parts.push(`戏谑x${u.status.mockeryStacks}`);
   if(u.status.violenceStacks>0) parts.push(`暴力x${u.status.violenceStacks}`);
+  if(u.status.painAmpStacks>0) parts.push(`痛觉放大x${u.status.painAmpStacks}`);
+  if(u.status.tetanusStacks>0) parts.push(`破伤风x${u.status.tetanusStacks}`);
   if(u._spBroken) parts.push(`SP崩溃`);
   if(u._spCrashVuln) parts.push('SP崩溃易伤');
   if(hazMarkedTargetId && u.id === hazMarkedTargetId) parts.push('猎杀标记');
@@ -4476,6 +4511,26 @@ function processUnitsTurnStart(side){
     }
   }
 
+    const zai = units['zai'];
+    if(zai && zai.hp > 0){
+      let locked = null;
+      let maxStacks = -1;
+      for(const id of playerUnitIds){
+        const target = units[id];
+        if(!target || target.hp<=0) continue;
+        const stacks = target.status?.painAmpStacks || 0;
+        if(stacks > maxStacks){
+          maxStacks = stacks;
+          locked = target;
+        }
+      }
+      if(locked){
+        zai.status.lockedPreyId = locked.id;
+        appendLog(`锁定猎物：宰锁定 ${locked.name}（痛觉放大 ${maxStacks} 层）`);
+      }
+    }
+  }
+
   for(const id in units){
     const u=units[id];
     if(u.side!==side || u.hp<=0) continue;
@@ -4524,6 +4579,17 @@ function processUnitsTurnStart(side){
       u.status.recoverStacks = Math.max(0, u.status.recoverStacks - 1);
       showGainFloat(u,u.hp-before,0);
       appendLog(`${u.name} 的“恢复”触发：+5HP（剩余 ${u.status.recoverStacks}）`);
+    }
+
+    if(u.status.tetanusStacks && u.status.tetanusStacks > 0){
+      const tickDmg = 18 * u.status.tetanusStacks;
+      damageUnit(u.id, tickDmg, 0, `${u.name} 因破伤风受损`, null, {trueDamage:true});
+      u.status.tetanusTick = (u.status.tetanusTick || 0) + 1;
+      if(u.status.tetanusTick % 3 === 0 && u.status.painAmpStacks > 0){
+        const next = Math.max(0, u.status.painAmpStacks - 1);
+        updateStatusStacks(u, 'painAmpStacks', next, {label:'痛觉放大', type:'debuff'});
+        appendLog(`${u.name} 的痛觉放大衰减 1 层（剩余 ${next}）`);
+      }
     }
 
     if(u.status.bleed && u.status.bleed>0){
