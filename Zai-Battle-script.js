@@ -163,6 +163,7 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
       dependStacks: 0,           // “依赖”Buff 层数（下一次攻击真实伤害，结算后清空自身SP）
       agileStacks: 0,            // "灵活"Buff 层数（让敌方30%几率miss，miss消耗一层）
       affirmationStacks: 0,      // "肯定"Buff 层数（免疫一次SP伤害，多阶段攻击全阶段免疫，消耗一层）
+      afterimageStacks: 0,       // “残影”层数（下次受伤-10%，但受到的攻击+5%）
       painAmpStacks: 0,          // “痛觉放大”层数（每层受到伤害+10%，上限5层）
       tetanusStacks: 0,          // “破伤风”层数（回合开始造成真实伤害）
       tetanusTick: 0,            // 破伤风计数（每3回合衰减1层痛觉放大）
@@ -209,6 +210,8 @@ units['neyla']= createUnit('neyla','Neyla','player',52, 2,15, 350,80, 1.0,0, ['n
 units['kyn']  = createUnit('kyn','Kyn','player',51, 7,15, 250,70, 1.0,0, ['kynReturn','kynExecute','kynSwift'], {team:'seven', stunThreshold:2});
 // 敌人（宰）
 units['zai'] = createUnit('zai','宰','enemy',175, 17, 2, 2300,150, 1.0,20, [], {stunThreshold:4, pullImmune:true});
+units['zai'].zaiForm = 'dagger';
+units['zai'].zaiSwitchChance = 0.05;
 
 // —— 范围/工具 ——
 const DIRS = { up:{dr:-1,dc:0}, down:{dr:1,dc:0}, left:{dr:0,dc:-1}, right:{dr:0,dc:1} };
@@ -1915,6 +1918,30 @@ function hasBloomInAnyPlayerPool(){
   }
   return false;
 }
+function addPainAmp(target, stacks = 1){
+  if(!target || target.hp<=0) return 0;
+  const current = target.status?.painAmpStacks || 0;
+  const next = Math.min(5, current + stacks);
+  updateStatusStacks(target, 'painAmpStacks', next, {label:'痛觉放大', type:'debuff'});
+  return next;
+}
+function addTetanus(target, stacks = 1){
+  if(!target || target.hp<=0) return 0;
+  const current = target.status?.tetanusStacks || 0;
+  const next = current + stacks;
+  updateStatusStacks(target, 'tetanusStacks', next, {label:'破伤风', type:'debuff'});
+  target.status.tetanusTick = target.status.tetanusTick || 0;
+  return next;
+}
+function damageUnitWithFloor(id, hpDmg, spDmg, reason, sourceId, minHp, opts={}){
+  const u = units[id];
+  if(!u || u.hp<=0) return;
+  if(typeof minHp === 'number' && minHp >= 0 && u.hp > minHp){
+    const maxDmg = Math.max(0, u.hp - minHp);
+    hpDmg = Math.min(hpDmg, maxDmg);
+  }
+  damageUnit(id, hpDmg, spDmg, reason, sourceId, opts);
+}
 function calcOutgoingDamage(attacker, baseDmg, target, skillName){
   let dmg = baseDmg;
   if(attacker.passives.includes('fearBuff') && attacker.sp<10) dmg = Math.round(dmg*1.5);
@@ -1963,6 +1990,15 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
       updateStatusStacks(u,'agileStacks', Math.max(0, u.status.agileStacks - 1), {label:'灵活', type:'buff'});
       showStatusFloat(u,'Miss',{type:'buff', offsetY:-48});
       pulseCell(u.r,u.c);
+      renderAll();
+      return;
+    }
+
+    if(u.id === 'zai' && u.zaiForm === 'dagger' && Math.random() < 0.25){
+      appendLog(`${u.name} 匕形态闪避成功！`);
+      addStatusStacks(u, 'afterimageStacks', 1, {label:'残影', type:'buff'});
+      showStatusFloat(u,'闪避',{type:'buff', offsetY:-48});
+      pulseCell(u.r, u.c);
       renderAll();
       return;
     }
@@ -2046,9 +2082,22 @@ function damageUnit(id, hpDmg, spDmg, reason, sourceId=null, opts={}){
     }
   }
 
+  if(!trueDamage && u.id === 'zai' && u.zaiForm === 'blade'){
+    hpDmg = Math.round(hpDmg * 0.75);
+    spDmg = Math.round(spDmg * 0.75);
+  }
+
   if(u.status && u.status.painAmpStacks > 0){
     const amp = Math.min(5, u.status.painAmpStacks);
     hpDmg = Math.round(hpDmg * (1 + amp * 0.1));
+  }
+
+  if(u.status && u.status.afterimageStacks > 0){
+    hpDmg = Math.round(hpDmg * 1.05);
+    spDmg = Math.round(spDmg * 1.05);
+    hpDmg = Math.round(hpDmg * 0.9);
+    spDmg = Math.round(spDmg * 0.9);
+    updateStatusStacks(u, 'afterimageStacks', Math.max(0, u.status.afterimageStacks - 1), {label:'残影', type:'buff'});
   }
 
   if(source && source.id === 'zai' && source.status && source.status.lockedPreyId === u.id){
@@ -3160,6 +3209,205 @@ async function neyla_ExecuteHarpoons(u, desc){
   unitActed(u);
 }
 
+// —— 宰 —— 
+function zaiApplyTetanus(target, stacks=1){
+  const next = addTetanus(target, stacks);
+  appendLog(`${target.name} 破伤风层数 -> ${next}`);
+}
+function zaiApplyPainAmp(target, stacks=1){
+  const next = addPainAmp(target, stacks);
+  appendLog(`${target.name} 痛觉放大层数 -> ${next}`);
+}
+async function zai_GoodDouble(u, descOrTarget){
+  const target = descOrTarget && descOrTarget.id ? descOrTarget : (() => {
+    const cell = forwardCellAt(u, u.facing, 1);
+    return cell ? getUnitAt(cell.r, cell.c) : null;
+  })();
+  if(!target || target.side===u.side){ appendLog('好事成双 未命中'); unitActed(u); return; }
+  await telegraphThenImpact([{r:target.r,c:target.c}]);
+  const dmg1 = calcOutgoingDamage(u, 35, target, '好事成双');
+  damageUnit(target.id, dmg1, 5, `${u.name} 好事成双·一段`, u.id);
+  u.dmgDone += dmg1;
+  await sleep(180);
+  const dmg2 = calcOutgoingDamage(u, 25, target, '好事成双');
+  damageUnit(target.id, dmg2, 10, `${u.name} 好事成双·二段`, u.id);
+  u.dmgDone += dmg2;
+  zaiApplyTetanus(target, 1);
+  unitActed(u);
+}
+async function zai_CatchMe(u, target){
+  if(!target || target.side===u.side || target.hp<=0){ appendLog('他妈来抓老子啊 目标无效'); unitActed(u); return; }
+  await stageMark([{r:target.r,c:target.c}]);
+  const dmg1 = calcOutgoingDamage(u, 25, target, '他妈来抓老子啊');
+  damageUnit(target.id, dmg1, 0, `${u.name} 斩到身后`, u.id);
+  u.dmgDone += dmg1;
+  zaiApplyTetanus(target, 1);
+  await sleep(180);
+  const dmg2 = calcOutgoingDamage(u, 30, target, '他妈来抓老子啊');
+  damageUnit(target.id, dmg2, 5, `${u.name} 斩回身前`, u.id);
+  u.dmgDone += dmg2;
+  zaiApplyPainAmp(target, 1);
+  await sleep(180);
+  const dmg3 = calcOutgoingDamage(u, 25, target, '他妈来抓老子啊');
+  damageUnit(target.id, dmg3, 5, `${u.name} 上斩`, u.id);
+  u.dmgDone += dmg3;
+  addStatusStacks(target, 'bleed', 1, {label:'流血', type:'debuff'});
+  await sleep(180);
+  const dmg4 = calcOutgoingDamage(u, 15, target, '他妈来抓老子啊');
+  damageUnit(target.id, dmg4, 5, `${u.name} 下斩`, u.id);
+  u.dmgDone += dmg4;
+  zaiApplyTetanus(target, 1);
+  unitActed(u);
+}
+async function zai_CleavingFrenzy(u, target){
+  if(!target || target.side===u.side || target.hp<=0){ appendLog('快刀斩乱麻 目标无效'); unitActed(u); return; }
+  await stageMark([{r:target.r,c:target.c}]);
+  const dmg1 = calcOutgoingDamage(u, 10, target, '快刀斩乱麻');
+  damageUnit(target.id, dmg1, 5, `${u.name} 刺击`, u.id);
+  u.dmgDone += dmg1;
+  addStatusStacks(target, 'bleed', 1, {label:'流血', type:'debuff'});
+  await sleep(150);
+  const dmg2 = calcOutgoingDamage(u, 25, target, '快刀斩乱麻');
+  damageUnit(target.id, dmg2, 0, `${u.name} 连斩一`, u.id);
+  u.dmgDone += dmg2;
+  zaiApplyTetanus(target, 1);
+  await sleep(150);
+  const dmg3 = calcOutgoingDamage(u, 15, target, '快刀斩乱麻');
+  damageUnit(target.id, dmg3, 0, `${u.name} 连斩二`, u.id);
+  u.dmgDone += dmg3;
+  addStatusStacks(target, 'bleed', 1, {label:'流血', type:'debuff'});
+  await sleep(150);
+  const dmg4 = calcOutgoingDamage(u, 15, target, '快刀斩乱麻');
+  damageUnit(target.id, dmg4, 0, `${u.name} 连斩三`, u.id);
+  u.dmgDone += dmg4;
+  zaiApplyTetanus(target, 1);
+  await sleep(150);
+  const dmg5 = calcOutgoingDamage(u, 25, target, '快刀斩乱麻');
+  damageUnit(target.id, dmg5, 0, `${u.name} 连斩四`, u.id);
+  u.dmgDone += dmg5;
+  zaiApplyPainAmp(target, 1);
+  unitActed(u);
+}
+async function zai_BloodStar(u){
+  const area = range_square_n(u, 2);
+  const enemies = area.map(c => getUnitAt(c.r,c.c)).filter(t=>t && t.side!==u.side && t.hp>0);
+  if(enemies.length === 0){ appendLog('非正式血星鬼斩裂 未命中'); unitActed(u); return; }
+  for(let i=0;i<24;i+=1){
+    const target = enemies[Math.floor(Math.random()*enemies.length)];
+    const dmg = calcOutgoingDamage(u, 15, target, '非正式血星鬼斩裂');
+    damageUnit(target.id, dmg, 1, `${u.name} 连斩`, u.id);
+    u.dmgDone += dmg;
+    if((i+1) % 3 === 0) addStatusStacks(target, 'bleed', 1, {label:'流血', type:'debuff'});
+    if((i+1) % 5 === 0) zaiApplyTetanus(target, 1);
+    if((i+1) % 10 === 0) zaiApplyPainAmp(target, 1);
+    await sleep(40);
+  }
+  for(const target of enemies){
+    const dmg = calcOutgoingDamage(u, 35, target, '非正式血星鬼斩裂');
+    damageUnit(target.id, dmg, 5, `${u.name} 五角星斩`, u.id);
+    u.dmgDone += dmg;
+    addStatusStacks(target, 'bleed', 1, {label:'流血', type:'debuff'});
+    zaiApplyTetanus(target, 1);
+  }
+  await sleep(180);
+  for(const target of enemies){
+    const dmg = calcOutgoingDamage(u, 77, target, '非正式血星鬼斩裂');
+    damageUnitWithFloor(target.id, dmg, 77, `${u.name} 终式重斩`, u.id, 10);
+    u.dmgDone += dmg;
+    addStatusStacks(target, 'bleed', 5, {label:'流血', type:'debuff'});
+    zaiApplyTetanus(target, 1);
+    zaiApplyPainAmp(target, 1);
+  }
+  unitActed(u);
+}
+async function zai_BrutalSlash(u){
+  const cells = range_forward_n(u, 6, u.facing);
+  if(cells.length === 0){ appendLog('不讲理的蛮力劈砍 无目标'); unitActed(u); return; }
+  await stageMark(cells);
+  for(const cell of cells){
+    const target = getUnitAt(cell.r, cell.c);
+    if(target && target.side!==u.side && target.hp>0){
+      const dmg = calcOutgoingDamage(u, 45, target, '不讲理的蛮力劈砍');
+      damageUnit(target.id, dmg, 5, `${u.name} 蛮力劈砍`, u.id);
+      u.dmgDone += dmg;
+      zaiApplyTetanus(target, 1);
+    }
+  }
+  unitActed(u);
+}
+function zaiCrossCells(center, range=4){
+  const cells = [];
+  for(const dir of ['up','down','left','right']){
+    const line = range_forward_n(center, range, dir);
+    cells.push(...line);
+  }
+  return cells;
+}
+async function zai_BloodWave(u){
+  const initialCells = zaiCrossCells(u, 4);
+  let hitTargets = [];
+  await stageMark(initialCells);
+  for(const cell of initialCells){
+    const target = getUnitAt(cell.r, cell.c);
+    if(target && target.side!==u.side && target.hp>0){
+      const dmg = calcOutgoingDamage(u, 35, target, '血浪');
+      damageUnit(target.id, dmg, 20, `${u.name} 血浪`, u.id);
+      u.dmgDone += dmg;
+      hitTargets.push(target);
+    }
+  }
+  for(const target of hitTargets){
+    const cells = zaiCrossCells(target, 4);
+    await stageMark(cells);
+    for(const cell of cells){
+      const t = getUnitAt(cell.r, cell.c);
+      if(t && t.side!==u.side && t.hp>0){
+        const dmg = calcOutgoingDamage(u, 35, t, '血浪');
+        damageUnit(t.id, dmg, 20, `${u.name} 血浪扩散`, u.id);
+        u.dmgDone += dmg;
+      }
+    }
+  }
+  unitActed(u);
+}
+async function zai_TetanusDetonate(u){
+  let totalStacks = 0;
+  for(const id in units){
+    const target = units[id];
+    if(!target || target.hp<=0) continue;
+    const stacks = target.status?.tetanusStacks || 0;
+    if(stacks > 0){
+      totalStacks += stacks;
+      const dmg = 18 * stacks;
+      damageUnit(target.id, dmg, 0, `${u.name} 引爆破伤风`, u.id, {trueDamage:true});
+    }
+  }
+  if(totalStacks > 0){
+    const healHp = 5 * totalStacks;
+    const healSp = 2 * totalStacks;
+    u.hp = Math.min(u.maxHp, u.hp + healHp);
+    u.sp = Math.min(u.maxSp, u.sp + healSp);
+    syncSpBroken(u);
+    appendLog(`${u.name} 引爆破伤风：恢复 ${healHp} HP / ${healSp} SP`);
+  }
+  unitActed(u);
+}
+async function zai_EbbTide(u){
+  const cells = range_line(u, u.facing);
+  if(cells.length === 0){ appendLog('退潮 无目标'); unitActed(u); return; }
+  await stageMark(cells);
+  for(const cell of cells){
+    const target = getUnitAt(cell.r, cell.c);
+    if(target && target.side!==u.side && target.hp>0){
+      const dmg = calcOutgoingDamage(u, 200, target, '退潮');
+      damageUnitWithFloor(target.id, dmg, 50, `${u.name} 退潮`, u.id, 10);
+      u.dmgDone += dmg;
+      zaiApplyTetanus(target, 5);
+    }
+  }
+  unitActed(u);
+}
+
 // —— Kyn —— 
 function kynReturnToHaz(u){
   const haz = units['haz'];
@@ -3533,6 +3781,59 @@ function buildSkillFactoriesForUnit(u){
         (uu)=> karmaAdrenaline(uu),
         {},
         {castMs:700}
+      )}
+    );
+  } else if(u.id==='zai'){
+    F.push(
+      { key:'好事成双', prob:0.75, cond:()=>u.zaiForm === 'dagger', make:()=> skill('好事成双',1,'red','前方1格双斩：35HP+5SP → 25HP+10SP，并叠1层破伤风',
+        (uu)=> range_forward_n(uu,1),
+        (uu,aim)=> zai_GoodDouble(uu, aim && aim.id ? aim : (aim ? getUnitAt(aim.r, aim.c) : null)),
+        {},
+        {castMs:900}
+      )},
+      { key:'他妈来抓老子啊', prob:0.60, cond:()=>u.zaiForm === 'dagger', make:()=> skill('他妈来抓老子啊',2,'red','5格内目标：连斩并叠破伤风/痛觉放大/流血',
+        (uu)=> inRadiusCells(uu,5,{allowOccupied:true}).filter(p=>{ const tu=getUnitAt(p.r,p.c); return tu && tu.side!==uu.side; }),
+        (uu,aim)=> zai_CatchMe(uu, getUnitAt(aim.r, aim.c)),
+        {cellTargeting:true},
+        {castMs:1200}
+      )},
+      { key:'快刀斩乱麻', prob:0.40, cond:()=>u.zaiForm === 'dagger', make:()=> skill('快刀斩乱麻',3,'red','前方3格目标多段连斩，叠破伤风/痛觉放大/流血',
+        (uu)=> range_forward_n(uu,3),
+        (uu,aim)=> zai_CleavingFrenzy(uu, aim && aim.id ? aim : (aim ? getUnitAt(aim.r, aim.c) : null)),
+        {},
+        {castMs:1200}
+      )},
+      { key:'非正式血星鬼斩裂', prob:0.10, cond:()=>u.zaiForm === 'dagger', make:()=> skill('非正式血星鬼斩裂',5,'red','5x5内多段斩击并叠破伤风/痛觉放大/流血，终式锁血到10',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> zai_BloodStar(uu),
+        {aoe:true},
+        {castMs:1400}
+      )}
+    );
+    F.push(
+      { key:'不讲理的蛮力劈砍', prob:0.75, cond:()=>u.zaiForm === 'blade', make:()=> skill('不讲理的蛮力劈砍',1,'red','前方6格内所有敌方 45HP+5SP 并叠破伤风',
+        (uu)=> range_forward_n(uu,6),
+        (uu)=> zai_BrutalSlash(uu),
+        {aoe:true},
+        {castMs:900}
+      )},
+      { key:'血浪', prob:0.60, cond:()=>u.zaiForm === 'blade', make:()=> skill('血浪',2,'red','对上下左右4行造成35HP+20SP，命中后以其为中心再扩散',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> zai_BloodWave(uu),
+        {aoe:true},
+        {castMs:1200}
+      )},
+      { key:'一股鱼腥味。。', prob:0.40, cond:()=>u.zaiForm === 'blade', make:()=> skill('一股鱼腥味。。',3,'red','引爆场上所有破伤风层数（18真实伤害/层），并回复自身HP/SP',
+        (uu)=>[{r:uu.r,c:uu.c,dir:uu.facing}],
+        (uu)=> zai_TetanusDetonate(uu),
+        {aoe:true},
+        {castMs:1200}
+      )},
+      { key:'退潮', prob:0.10, cond:()=>u.zaiForm === 'blade', make:()=> skill('退潮',5,'red','前方整行 200HP+50SP 并叠5层破伤风（锁血10）',
+        (uu)=> range_line(uu),
+        (uu)=> zai_EbbTide(uu),
+        {aoe:true},
+        {castMs:1400}
       )}
     );
   } else if(u.id==='haz'){
@@ -4099,6 +4400,7 @@ function summarizeNegatives(u){
   if(u.status.jixueStacks>0) parts.push(`鸡血x${u.status.jixueStacks}`);
   if(u.status.dependStacks>0) parts.push(`依赖x${u.status.dependStacks}`);
   if(u.status.agileStacks>0) parts.push(`灵活x${u.status.agileStacks}`);
+  if(u.status.afterimageStacks>0) parts.push(`残影x${u.status.afterimageStacks}`);
   if(u.status.affirmationStacks>0) parts.push(`肯定x${u.status.affirmationStacks}`);
   if(u.status.mockeryStacks>0) parts.push(`戏谑x${u.status.mockeryStacks}`);
   if(u.status.violenceStacks>0) parts.push(`暴力x${u.status.violenceStacks}`);
@@ -4509,10 +4811,24 @@ function processUnitsTurnStart(side){
         }
       }
     }
-  }
-
     const zai = units['zai'];
     if(zai && zai.hp > 0){
+      if(zai.zaiForm === 'blade'){
+        enemySteps = Math.max(0, enemySteps - 1);
+        appendLog('宰（刀形态）：每回合减一步');
+      }
+      const roll = Math.random();
+      if(roll < (zai.zaiSwitchChance || 0.05)){
+        zai.zaiForm = zai.zaiForm === 'dagger' ? 'blade' : 'dagger';
+        zai.zaiSwitchChance = 0.05;
+        zai.skillPool.length = 0;
+        zai.dealtStart = false;
+        ensureStartHand(zai);
+        appendLog(`宰切换为${zai.zaiForm === 'dagger' ? '匕' : '刀'}形态`);
+      } else {
+        zai.zaiSwitchChance = Math.min(1, (zai.zaiSwitchChance || 0.05) + 0.05);
+      }
+
       let locked = null;
       let maxStacks = -1;
       for(const id of playerUnitIds){
@@ -4527,8 +4843,11 @@ function processUnitsTurnStart(side){
       if(locked){
         zai.status.lockedPreyId = locked.id;
         appendLog(`锁定猎物：宰锁定 ${locked.name}（痛觉放大 ${maxStacks} 层）`);
+      } else {
+        zai.status.lockedPreyId = null;
       }
     }
+  }
   }
 
   for(const id in units){
@@ -4590,6 +4909,8 @@ function processUnitsTurnStart(side){
         updateStatusStacks(u, 'painAmpStacks', next, {label:'痛觉放大', type:'debuff'});
         appendLog(`${u.name} 的痛觉放大衰减 1 层（剩余 ${next}）`);
       }
+    } else if(u.status.tetanusTick){
+      u.status.tetanusTick = 0;
     }
 
     if(u.status.bleed && u.status.bleed>0){
