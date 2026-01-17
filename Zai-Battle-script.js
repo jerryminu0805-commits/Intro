@@ -196,17 +196,15 @@ function createUnit(id, name, side, level, r, c, maxHp, maxSp, restoreOnZeroPct,
   };
 }
 const units = {};
-// 玩家
-units['adora'] = createUnit('adora','Adora','player',52, 17, 2, 100,100, 0.5,0, ['backstab','calmAnalysis','proximityHeal','fearBuff']);
-units['dario'] = createUnit('dario','Dario','player',52, 17, 6, 150,100, 0.75,0, ['quickAdjust','counter','moraleBoost']);
-units['karma'] = createUnit('karma','Karma','player',52, 17, 4, 200,50, 0.5,20, ['violentAddiction','toughBody','pride']);
-// 七海
-function applyAftermath(u){ u.hp = Math.max(1, Math.floor(u.hp * 0.75)); if(!u.passives.includes('aftermath')) u.passives.push('aftermath'); }
-units['haz']  = createUnit('haz','Haz','enemy',55, 4,21, 750,100, 1.0,0, ['hazObsess','hazHatred','hazOrders','hazWorth','hazCritWindow','hazHunt'], {team:'seven', stunThreshold:4, pullImmune:true}); applyAftermath(units['haz']);
-units['katz'] = createUnit('katz','Katz','enemy',53, 3,19, 500,75, 1.0,0, ['katzHidden','katzExecution','katzStrong'], {team:'seven', stunThreshold:3, pullImmune:true}); applyAftermath(units['katz']);
-units['tusk'] = createUnit('tusk','Tusk','enemy',54, 6,19, 1000,60, 1.0,0, ['tuskGuard','tuskWall','tuskBull'], {team:'seven', size:2, stunThreshold:3, pullImmune:true}); applyAftermath(units['tusk']);
-units['neyla']= createUnit('neyla','Neyla','enemy',52, 2,15, 350,80, 1.0,0, ['neylaAim','neylaCold','neylaReload'], {team:'seven', stunThreshold:2}); applyAftermath(units['neyla']);
-units['kyn']  = createUnit('kyn','Kyn','enemy',51, 7,15, 250,70, 1.0,0, ['kynReturn','kynExecute','kynSwift'], {team:'seven', stunThreshold:2}); applyAftermath(units['kyn']);
+// 玩家（七海作战队，满血）
+const playerUnitIds = ['haz', 'tusk', 'katz', 'neyla', 'kyn'];
+units['haz']  = createUnit('haz','Haz','player',55, 4,21, 750,100, 1.0,0, ['hazObsess','hazHatred','hazOrders','hazWorth','hazCritWindow','hazHunt'], {team:'seven', stunThreshold:4, pullImmune:true});
+units['katz'] = createUnit('katz','Katz','player',53, 3,19, 500,75, 1.0,0, ['katzHidden','katzExecution','katzStrong'], {team:'seven', stunThreshold:3, pullImmune:true});
+units['tusk'] = createUnit('tusk','Tusk','player',54, 6,19, 1000,60, 1.0,0, ['tuskGuard','tuskWall','tuskBull'], {team:'seven', size:2, stunThreshold:3, pullImmune:true});
+units['neyla']= createUnit('neyla','Neyla','player',52, 2,15, 350,80, 1.0,0, ['neylaAim','neylaCold','neylaReload'], {team:'seven', stunThreshold:2});
+units['kyn']  = createUnit('kyn','Kyn','player',51, 7,15, 250,70, 1.0,0, ['kynReturn','kynExecute','kynSwift'], {team:'seven', stunThreshold:2});
+// 敌人（宰）
+units['zai'] = createUnit('zai','宰','enemy',175, 17, 2, 2300,150, 1.0,20, [], {stunThreshold:4, pullImmune:true});
 
 // —— 范围/工具 ——
 const DIRS = { up:{dr:-1,dc:0}, down:{dr:1,dc:0}, left:{dr:0,dc:-1}, right:{dr:0,dc:1} };
@@ -1898,7 +1896,7 @@ function hasDeepBreathPassive(attacker){
 }
 function hasBloomInAnyPlayerPool(){
   // Check if any player has the Bloom skill in their pool
-  for(const id of ['adora','dario','karma']){
+  for(const id of playerUnitIds){
     const u = units[id];
     if(!u || u.hp<=0) continue;
     const pool = u.skillPool || [];
@@ -4099,13 +4097,13 @@ function summarizeNegatives(u){
 function renderStatus(){
   if(!partyStatus) return;
   partyStatus.innerHTML='';
-  for(const id of ['adora','dario','karma']){
+  for(const id of playerUnitIds){
     const u=units[id]; if(!u) continue;
     const el=document.createElement('div'); el.className='partyRow';
     el.innerHTML=`<strong>${u.name}</strong> HP:${u.hp}/${u.maxHp} SP:${u.sp}/${u.maxSp} ${summarizeNegatives(u)}`;
     partyStatus.appendChild(el);
   }
-  const enemyWrap=document.createElement('div'); enemyWrap.style.marginTop='10px'; enemyWrap.innerHTML='<strong>敌方（七海作战队）</strong>';
+  const enemyWrap=document.createElement('div'); enemyWrap.style.marginTop='10px'; enemyWrap.innerHTML='<strong>敌方（宰）</strong>';
   const enemyUnits = Object.values(units).filter(u=>u.side==='enemy' && u.hp>0);
   for(const u of enemyUnits){
     const el=document.createElement('div'); el.className='partyRow small';
@@ -5021,7 +5019,7 @@ function showAccomplish(){
   if(damageSummary){
     damageSummary.innerHTML='';
     const wrap=document.createElement('div'); wrap.className='acctable';
-    for(const id of ['adora','dario','karma']){
+    for(const id of playerUnitIds){
       const u=units[id];
       const row=document.createElement('div'); row.className='row';
       row.innerHTML=`<strong>${u.name}</strong><div class="small">造成伤害: ${u.dmgDone}，受到: ${u.maxHp - u.hp}</div>`;
@@ -5034,17 +5032,17 @@ function showAccomplish(){
     accomplish.classList.add('hidden'); 
     appendLog('通关!'); 
     
-    // Award coins for completing sevenSeas stage
+    // Award coins for completing zaiBattle stage
     if (typeof localStorage !== 'undefined') {
       const STORAGE_KEY_COINS = 'gwdemo_coins';
       const STORAGE_KEY_STAGE_COMPLETIONS = 'gwdemo_stage_completions';
       
       // Load current coins and completions
       const currentCoins = parseInt(localStorage.getItem(STORAGE_KEY_COINS) || '0', 10);
-      const completions = JSON.parse(localStorage.getItem(STORAGE_KEY_STAGE_COMPLETIONS) || '{"intro":0,"abandonedAnimals":0,"fatigue":0,"sevenSeas":0}');
+      const completions = JSON.parse(localStorage.getItem(STORAGE_KEY_STAGE_COMPLETIONS) || '{"intro":0,"abandonedAnimals":0,"fatigue":0,"sevenSeas":0,"zaiBattle":0}');
       
-      // Increment sevenSeas completions
-      completions.sevenSeas = (completions.sevenSeas || 0) + 1;
+      // Increment zaiBattle completions
+      completions.zaiBattle = (completions.zaiBattle || 0) + 1;
       localStorage.setItem(STORAGE_KEY_STAGE_COMPLETIONS, JSON.stringify(completions));
       
       // Award 1 coin
