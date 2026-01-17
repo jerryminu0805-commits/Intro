@@ -4848,7 +4848,6 @@ function processUnitsTurnStart(side){
       }
     }
   }
-  }
 
   for(const id in units){
     const u=units[id];
